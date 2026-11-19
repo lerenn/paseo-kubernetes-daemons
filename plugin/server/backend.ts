@@ -113,7 +113,7 @@ export async function syncHosts(
     ) {
       host = await paseo.hosts.add({
         connection: env.status.endpoint,
-        label: env.metadata.name,
+        label: `Kubernetes Pod pw-${env.metadata.name}`,
         sourceKey: `kubernetes/${scope}/${env.metadata.uid}`,
         metadata: { manager, scope, workspaceUid: env.metadata.uid },
       });

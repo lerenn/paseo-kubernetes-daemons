@@ -63,6 +63,7 @@ test("registers ready environments, reverse links, and removes only stale owned 
     ]);
     assert.deepEqual(removed, ["stale"]);
     assert.equal(adds.length, 1);
+    assert.equal((adds[0] as { label: string }).label, "Kubernetes Pod pw-ready");
     assert.equal(reverse.length, 1);
     assert.equal(results[0].serverId, "remote");
     assert.equal(results[1].serverId, null);
