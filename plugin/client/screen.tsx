@@ -463,6 +463,14 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
               />
               <Choice
                 theme={theme}
+                label="Enable Docker"
+                description="Run a dedicated Docker engine in each new workspace. Requires privileged containers in the workspace namespace."
+                checked={draft.docker}
+                onChange={(v) => patch("docker", v)}
+                disabled={busy}
+              />
+              <Choice
+                theme={theme}
                 label="Ephemeral storage"
                 description="Discard files when the pod is deleted or replaced. Turn off to keep a persistent volume until release."
                 checked={draft.ephemeral}

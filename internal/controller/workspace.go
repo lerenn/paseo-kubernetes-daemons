@@ -25,7 +25,11 @@ type Bootstrap struct {
 	ConfigMapName string `json:"configMapName"`
 	EnvSecretName string `json:"envSecretName"`
 }
+type Docker struct {
+	Enabled bool `json:"enabled"`
+}
 type Spec struct {
+	Docker           *Docker                     `json:"docker,omitempty"`
 	Bootstrap        *Bootstrap                  `json:"bootstrap,omitempty"`
 	Ephemeral        bool                        `json:"ephemeral,omitempty"`
 	WorkingDirectory string                      `json:"workingDirectory,omitempty"`
@@ -121,6 +125,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			Env:     pod.Spec.Containers[0].Env, EnvFrom: pod.Spec.Containers[0].EnvFrom, Resources: s.Resources, SecurityContext: container.SecurityContext,
 			VolumeMounts: []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}, {Name: "bootstrap-credentials", MountPath: "/var/run/paseo/credentials", ReadOnly: true}, {Name: "bootstrap-config", MountPath: "/var/run/paseo/config", ReadOnly: true}}}}
 	}
+	if s.Docker != nil && s.Docker.Enabled {
+		// Use a Unix socket only: the stock entrypoint otherwise also opens TCP.
+		root := int64(0)
+		dockerSize := resource.MustParse("10Gi")
+		socket := corev1.VolumeMount{Name: "docker-socket", MountPath: "/var/run/docker"}
+		pod.Spec.Volumes = append(pod.Spec.Volumes,
+			corev1.Volume{Name: "docker-socket", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory, SizeLimit: quantityPtr("1Mi")}}},
+			corev1.Volume{Name: "docker-data", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: &dockerSize}}})
+		daemon := &pod.Spec.Containers[0]
+		daemon.Env = append(daemon.Env, corev1.EnvVar{Name: "DOCKER_HOST", Value: "unix:///var/run/docker/docker.sock"})
+		daemon.VolumeMounts = append(daemon.VolumeMounts, socket)
+		// Pod readiness must wait for both the daemon and Docker.
+		pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{
+			Name: "docker", Image: "docker:29.0.0-dind",
+			Args:            []string{"dockerd", "--host=unix:///var/run/docker/docker.sock", "--group=1000"},
+			Env:             []corev1.EnvVar{{Name: "DOCKER_TLS_CERTDIR", Value: ""}},
+			SecurityContext: &corev1.SecurityContext{Privileged: boolPtr(true), RunAsUser: &root, RunAsGroup: &root, RunAsNonRoot: boolPtr(false)},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("256Mi"), corev1.ResourceEphemeralStorage: resource.MustParse("1Gi")},
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("2Gi"), corev1.ResourceEphemeralStorage: resource.MustParse("12Gi")}},
+			VolumeMounts:   []corev1.VolumeMount{socket, {Name: "docker-data", MountPath: "/var/lib/docker"}, {Name: "workspace", MountPath: "/workspace"}},
+			ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"docker", "--host=unix:///var/run/docker/docker.sock", "info"}}}, PeriodSeconds: 5},
+		})
+	}
 	for _, desired := range desiredObjects {
 		existing := desired.DeepCopyObject().(client.Object)
 		err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: req.Namespace}, existing)
@@ -173,3 +201,5 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 }
 func boolPtr(v bool) *bool { return &v }
+
+func quantityPtr(value string) *resource.Quantity { q := resource.MustParse(value); return &q }

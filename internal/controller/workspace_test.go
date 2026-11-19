@@ -2,12 +2,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"slices"
 	"testing"
 )
 
@@ -136,5 +138,63 @@ func TestEphemeralBootstrap(t *testing.T) {
 	}
 	if *pod.Spec.AutomountServiceAccountToken {
 		t.Fatal("workspace received API credentials")
+	}
+}
+
+func TestDockerSidecar(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			_ = corev1.AddToScheme(scheme)
+			w := object()
+			w.SetName("docker")
+			w.SetNamespace("test")
+			w.SetUID("uid")
+			w.Object["spec"] = map[string]interface{}{"image": "test", "storage": "4Gi", "ephemeral": true, "docker": map[string]interface{}{"enabled": enabled}}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(w).WithObjects(w).Build()
+			r := &Reconciler{Client: c, Namespace: "test"}
+			if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "docker", Namespace: "test"}}); err != nil {
+				t.Fatal(err)
+			}
+			pod := &corev1.Pod{}
+			if err := c.Get(context.Background(), types.NamespacedName{Name: "pw-docker", Namespace: "test"}, pod); err != nil {
+				t.Fatal(err)
+			}
+			if !enabled {
+				if len(pod.Spec.Containers) != 1 {
+					t.Fatal("Docker enabled by default")
+				}
+				return
+			}
+			if len(pod.Spec.Containers) != 2 {
+				t.Fatal("missing sidecar")
+			}
+			daemon, docker := pod.Spec.Containers[0], pod.Spec.Containers[1]
+			if !*docker.SecurityContext.Privileged || *docker.SecurityContext.RunAsUser != 0 || *docker.SecurityContext.RunAsNonRoot {
+				t.Fatal("incorrect DinD security context")
+			}
+			if *pod.Spec.SecurityContext.RunAsUser != 1000 || *daemon.SecurityContext.AllowPrivilegeEscalation {
+				t.Fatal("workspace privileges changed")
+			}
+			if !slices.Contains(docker.Args, "--group=1000") || !slices.Contains(daemon.Env, corev1.EnvVar{Name: "DOCKER_HOST", Value: "unix:///var/run/docker/docker.sock"}) {
+				t.Fatal("socket access missing")
+			}
+			if docker.ReadinessProbe == nil || len(docker.Resources.Limits) != 3 {
+				t.Fatal("missing readiness or resource limits")
+			}
+			for _, container := range []corev1.Container{daemon, docker} {
+				if !slices.Contains(container.VolumeMounts, corev1.VolumeMount{Name: "workspace", MountPath: "/workspace"}) || !slices.Contains(container.VolumeMounts, corev1.VolumeMount{Name: "docker-socket", MountPath: "/var/run/docker"}) {
+					t.Fatal("shared paths missing")
+				}
+			}
+			for _, volume := range pod.Spec.Volumes {
+				if volume.HostPath != nil {
+					t.Fatal("host filesystem exposed")
+				}
+				if volume.Name == "docker-data" && (volume.EmptyDir == nil || volume.EmptyDir.SizeLimit.String() != "10Gi") {
+					t.Fatal("Docker storage must be bounded and ephemeral")
+				}
+			}
+		})
 	}
 }

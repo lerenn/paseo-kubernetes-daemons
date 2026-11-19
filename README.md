@@ -65,3 +65,25 @@ The static documentation site lives in `website/`, following the Paseo Mail and
 Playbooks sites. Preview it with `python3 -m http.server 8091 --directory website`.
 The Pages workflow deploys changes on `main`; the custom domain is
 `kubernetes-workspaces.paseo.lerenn.dev` (DNS must point to GitHub Pages).
+
+### Optional Docker engine
+
+Enable **Enable Docker** under Advanced cluster settings, save, then create a new
+workspace. With manifests, set `spec.docker.enabled: true`. Apply the updated CRD
+and deploy the updated operator and workspace image first; existing workspace
+specifications are immutable.
+
+Each enabled pod gets a `docker:29.0.0-dind` sidecar and the workspace image includes
+Docker CLI, Buildx and Compose. The engine listens only on the shared Unix socket
+at `/var/run/docker/docker.sock`; no node Docker socket is mounted. Both containers
+mount `/workspace` at the same path so workspace bind mounts work. Published ports
+are accessible within the pod (including from the workspace via localhost).
+
+The sidecar requires admission policies that permit privileged containers in the
+workspace namespace. The Paseo container still runs as UID 1000 without privilege
+escalation. Docker requests 250m CPU, 256Mi RAM and 1Gi ephemeral storage, with
+limits of 2 CPUs, 2Gi RAM and 12Gi ephemeral storage. Its image/container data uses
+a 10Gi emptyDir and disappears whenever the pod is deleted or replaced, even for
+workspaces using persistent storage. Account for these extra resources in namespace
+quotas. Pod readiness waits for Docker; commands started earlier may need to retry
+until `docker info` succeeds.

@@ -50,6 +50,7 @@ export async function create(name: string, c: Configuration = defaults()) {
           image,
           storage: c.ephemeral ? "4Gi" : "10Gi",
           ephemeral: c.ephemeral,
+          docker: { enabled: c.docker },
           ...(c.bundle
             ? {
                 bootstrap: {

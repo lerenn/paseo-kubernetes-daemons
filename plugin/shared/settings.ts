@@ -18,6 +18,7 @@ export const settingsSchema = z.object({
   clusterId: z.string().min(1).max(100).default("default"),
   image: z.string().max(500).default(""),
   mainConnection: z.string().max(1000).default(""),
+  docker: z.boolean().default(false),
   ephemeral: z.boolean().default(true),
   bundle: bundleSchema.nullable().default(null),
 });

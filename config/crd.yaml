@@ -45,6 +45,12 @@ spec:
                 image:
                   type: string
                   minLength: 1
+                docker:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: false
                 ephemeral:
                   type: boolean
                   default: false
