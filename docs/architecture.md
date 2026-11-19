@@ -3,10 +3,10 @@
 Status: accepted for the initial implementation.
 
 Each `PaseoWorkspace` describes one execution environment. A Go controller creates
-one Pod, ClusterIP Service and PVC. All three carry controller owner references;
+one Pod and ClusterIP Service, plus either a PVC or an ephemeral emptyDir volume. Managed API objects carry controller owner references;
 deleting the CR garbage-collects them. Physical volume deletion depends on the
-StorageClass reclaim policy; use `Delete` for automatic disk cleanup. A restarted Pod
-reattaches the same PVC, preserving the daemon's identity and local state.
+StorageClass reclaim policy; use `Delete` for automatic disk cleanup. With persistent storage, a replacement Pod reattaches the same PVC, preserving
+the daemon's identity and local state. Ephemeral Pod replacement loses both.
 
 The main daemon's TypeScript companion plugin requests environments and registers
 ready endpoints through `paseo.hosts.add`, using the CR UID as its durable source
@@ -33,17 +33,39 @@ Resource requests and limits constrain each Pod; an optional ResourceQuota caps
 aggregate admission. Kubernetes rejects over-quota resource creation and the
 controller retries with backoff. This is not a fair scheduling queue. A PVC may be
 created while its Pod is waiting for admission. CPU is throttled, memory overages
-can cause OOM termination, and storage capacity depends on CSI enforcement. This
-version has no idle eviction, result export, TTL, automatic git checkout or remote
-Playbooks dispatch. Those can be added without changing the execution boundary.
+can cause OOM termination, and storage capacity depends on CSI enforcement. This version has no idle eviction, result export, TTL or remote Playbooks dispatch.
+Approved repository checkout is handled by the bootstrap init container. Those can be added without changing the execution boundary.
 
 The main daemon must reach cluster Service DNS and addresses; the reverse endpoint
 must be reachable from Pods. Deploying the main daemon in-cluster is the simplest
 configuration. Workspace pods receive no Kubernetes service account token. The
-operator has namespace-scoped permissions and does not read Secrets; the kubelet
-injects only a named Secret's environment into the workspace. Configure network
+operator has namespace-scoped permissions and does not read Secrets; the kubelet mounts selected bootstrap Secrets into the init container and injects
+selected environment variables into the workspace. Configure network
 policy and daemon authentication to match your cluster's trust boundary.
 
 References:
+
 - https://github.com/getpaseo/paseo/blob/main/docs/connected-hosts.md
 - https://github.com/getpaseo/paseo/blob/main/public-docs/plugins/reference.md
+
+## Credential profiles and bootstrap
+
+The companion's native setup screen is registered in the main sidebar. Host-scoped
+settings store connection information and an active immutable profile reference.
+Discovery returns names/availability only. A human-triggered sync exports selected
+Codex auth/configuration files and environment values as versioned Secrets, plus a
+non-secret ConfigMap for repository/bootstrap configuration. Objects are scoped to
+the main daemon identity and cluster connection; ownership checks prevent replacing
+unmanaged objects. Configuration containing inline MCP credentials stays secret.
+
+A bootstrap init container uses the workspace image to copy selected files into a
+private writable Codex home, clone an approved repository and establish trust at
+its stable pod path. The main container never mounts the raw file snapshot volume.
+Root project MCP tables are removed in favor of the explicitly selected snapshot.
+An unchanged profile preserves pod-local token refreshes on retries. No pod writes
+credentials back to the main host, and no automatic export runs in the background.
+
+Credential profiles outlive individual environments; existing pods must not lose
+snapshots they reference. Old snapshot cleanup is explicit. OAuth grant refresh
+coordination across copies and keychain credential export remain unsupported.
+See [setup](setup.md) for the exact supported credential sources and limitations.

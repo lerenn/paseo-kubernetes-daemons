@@ -18,18 +18,18 @@
 <main id="content">
 <section class="hero"><img class="hero-logo" src="assets/logo.png" width="64" height="64" alt="">
 <p class="eyebrow">Paseo + Kubernetes</p><h1>A pod for every workspace.</h1>
-<p class="lead">Give each workspace its own Paseo daemon, CPU and memory limits, and persistent storage. Keep your main daemon connected to all of them.</p>
+<p class="lead">Give each workspace its own Paseo daemon, CPU and memory limits, and a choice of ephemeral or persistent storage. Keep your main daemon connected to all of them.</p>
 <div class="actions"><a class="button" href="getting-started.html">Get started</a><a class="button secondary" href="https://github.com/lerenn/paseo-kubernetes-workspaces">View on GitHub</a></div></section>
 <figure class="architecture" aria-label="One main Paseo daemon connects to three independent workspace daemons, each running in its own Kubernetes pod.">
 <div class="main-daemon"><strong>Main Paseo daemon</strong><small>Companion plugin + connected hosts</small></div><div class="connector" aria-hidden="true"></div>
-<div class="pods"><div class="pod"><strong>Workspace A</strong><small>Paseo daemon · pod · PVC</small></div><div class="pod"><strong>Workspace B</strong><small>Paseo daemon · pod · PVC</small></div><div class="pod"><strong>Workspace C</strong><small>Paseo daemon · pod · PVC</small></div></div>
+<div class="pods"><div class="pod"><strong>Workspace A</strong><small>Paseo daemon · pod · storage</small></div><div class="pod"><strong>Workspace B</strong><small>Paseo daemon · pod · storage</small></div><div class="pod"><strong>Workspace C</strong><small>Paseo daemon · pod · storage</small></div></div>
 <figcaption>One execution environment per custom resource. Kubernetes manages the resources; Paseo manages the agents.</figcaption></figure>
 <h2>More workspaces. Predictable resources.</h2>
 <p>Running many agents on one machine makes them compete for CPU, RAM and disk. Workspace pods put explicit limits around each environment, while an optional namespace quota caps aggregate admission.</p>
-<div class="resource-strip" aria-label="Default limits per environment"><span><strong>2</strong> CPUs</span><span><strong>4 GiB</strong> memory</span><span><strong>4 GiB</strong> ephemeral storage</span><span><strong>10 GiB</strong> persistent volume</span></div>
+<div class="resource-strip" aria-label="Default limits per environment"><span><strong>2</strong> CPUs</span><span><strong>4 GiB</strong> memory</span><span><strong>4 GiB</strong> ephemeral storage</span><span><strong>10 GiB</strong> optional PVC</span></div>
 <h2>Existing daemons, connected together</h2>
 <p>A Go operator reconciles a <code>PaseoWorkspace</code> into a pod, a Service and a persistent volume claim. The companion plugin on your main daemon registers ready environments as connected hosts.</p>
-<ul><li><strong>Agents execute inside the workspace pod.</strong> Their files, scripts and terminals stay with the workspace daemon.</li><li><strong>Communication uses Paseo’s host API.</strong> Discover a remote <code>serverId</code>, create a workspace and start agents there.</li><li><strong>Reverse registration is optional.</strong> Configure a reachable main-daemon connection so pod agents can initiate messages back.</li><li><strong>Storage survives a replacement pod.</strong> The replacement attaches the same PVC and retains the daemon’s local state.</li></ul>
+<ul><li><strong>Agents execute inside the workspace pod.</strong> Their files, scripts and terminals stay with the workspace daemon.</li><li><strong>Communication uses Paseo’s host API.</strong> Discover a remote <code>serverId</code>, create a workspace and start agents there.</li><li><strong>Reverse registration is optional.</strong> Configure a reachable main-daemon connection so pod agents can initiate messages back.</li><li><strong>Storage follows the workspace lifecycle.</strong> Use ephemeral storage by default, or choose a PVC when data and daemon identity must survive pod replacement.</li></ul>
 <h2>Request. Connect. Work. Release.</h2>
 <pre><code>kubernetes_workspace_create({ &quot;name&quot;: &quot;demo&quot; })
 kubernetes_workspace_list({})
@@ -37,7 +37,7 @@ kubernetes_workspace_list({})
 # Export your results before deleting the environment.
 kubernetes_workspace_release({ &quot;name&quot;: &quot;demo&quot; })</code></pre>
 <p>The companion adds these tools to new agent sessions. Release deletes the environment’s pod and PVC; physical volume cleanup follows your StorageClass reclaim policy.</p>
-<div class="note">Initial implementation. Bring your own cluster and workspace image with agent providers. Remote Playbooks dispatch, idle shutdown and automatic repository checkout are not included yet.</div>
+<div class="note">Initial implementation. Bring your own cluster. The setup panel supports selected credential snapshots, approved repository checkout and Codex bootstrap. Remote Playbooks dispatch and idle shutdown are not included. OAuth refresh is not coordinated across pods.</div>
 <h2>Explore the project</h2><div class="cards">
 <a class="card" href="getting-started.html"><strong>Getting started</strong><span>Build images, deploy the operator and connect your first environment.</span></a>
 <a class="card" href="reference.html"><strong>Reference</strong><span>Agent tools, environment variables and the custom resource.</span></a>

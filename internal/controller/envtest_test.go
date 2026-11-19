@@ -63,6 +63,23 @@ func TestAPIAdmission(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	ephemeral := object()
+	ephemeral.SetName("ephemeral")
+	ephemeral.SetNamespace("test")
+	ephemeral.Object["spec"] = map[string]interface{}{"image": "example/paseo:test", "ephemeral": true, "workingDirectory": "/workspace/repository", "bootstrap": map[string]interface{}{"secretName": "profile", "configMapName": "profile", "envSecretName": "profile-env"}}
+	if err := c.Create(ctx, ephemeral); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ephemeral)}); err != nil {
+		t.Fatal(err)
+	}
+	pod := &corev1.Pod{}
+	if err := c.Get(ctx, client.ObjectKey{Name: "pw-ephemeral", Namespace: "test"}, pod); err != nil {
+		t.Fatal(err)
+	}
+	if len(pod.Spec.InitContainers) != 1 || pod.Spec.Volumes[0].EmptyDir == nil {
+		t.Fatal("bootstrap/ephemeral spec was not preserved by API admission")
+	}
 	// Read the latest resourceVersion after the status update.
 	if err := c.Get(ctx, client.ObjectKeyFromObject(w), w); err != nil {
 		t.Fatal(err)

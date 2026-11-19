@@ -45,6 +45,29 @@ spec:
                 image:
                   type: string
                   minLength: 1
+                ephemeral:
+                  type: boolean
+                  default: false
+                workingDirectory:
+                  type: string
+                  enum: [/workspace, /workspace/repository]
+                  default: /workspace
+                bootstrap:
+                  type: object
+                  required: [secretName, configMapName, envSecretName]
+                  properties:
+                    secretName:
+                      type: string
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                    configMapName:
+                      type: string
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                    envSecretName:
+                      type: string
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                 command:
                   type: array
                   minItems: 1
@@ -75,6 +98,7 @@ spec:
             status:
               type: object
               properties:
+                message: {type: string}
                 phase: {type: string}
                 endpoint: {type: string}
                 observedGeneration: {type: integer, format: int64}

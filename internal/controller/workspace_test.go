@@ -89,3 +89,52 @@ func TestRefuseForeignResource(t *testing.T) {
 		t.Fatal("adopted foreign resource")
 	}
 }
+
+func TestEphemeralBootstrap(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	w := object()
+	w.SetName("demo")
+	w.SetNamespace("test")
+	w.SetUID("uid")
+	w.Object["spec"] = map[string]interface{}{"image": "example/paseo:test", "storage": "4Gi", "ephemeral": true, "workingDirectory": "/workspace/repository", "bootstrap": map[string]interface{}{"secretName": "profile", "configMapName": "profile", "envSecretName": "profile-env"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(w, &corev1.Pod{}).WithObjects(w).Build()
+	r := &Reconciler{Client: c, Namespace: "test"}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "demo", Namespace: "test"}}); err != nil {
+		t.Fatal(err)
+	}
+	pod := &corev1.Pod{}
+	if err := c.Get(ctx, types.NamespacedName{Name: "pw-demo", Namespace: "test"}, pod); err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.Volumes[0].EmptyDir == nil {
+		t.Fatal("expected ephemeral workspace")
+	}
+	pvcs := &corev1.PersistentVolumeClaimList{}
+	if err := c.List(ctx, pvcs); err != nil {
+		t.Fatal(err)
+	}
+	if len(pvcs.Items) != 0 {
+		t.Fatal("ephemeral workspace allocated a PVC")
+	}
+	if len(pod.Spec.InitContainers) != 1 || pod.Spec.InitContainers[0].Name != "bootstrap" {
+		t.Fatal("missing bootstrap init container")
+	}
+	init := pod.Spec.InitContainers[0]
+	if len(init.VolumeMounts) != 3 || !init.VolumeMounts[1].ReadOnly || !init.VolumeMounts[2].ReadOnly {
+		t.Fatal("snapshot mounts must be read only")
+	}
+	if len(pod.Spec.Containers[0].VolumeMounts) != 1 {
+		t.Fatal("raw snapshot files must only be mounted into init container")
+	}
+	if pod.Spec.Containers[0].WorkingDir != "/workspace/repository" {
+		t.Fatal("wrong workspace directory")
+	}
+	if pod.Spec.Containers[0].EnvFrom[0].SecretRef.Name != "profile-env" {
+		t.Fatal("missing selected environment credentials")
+	}
+	if *pod.Spec.AutomountServiceAccountToken {
+		t.Fatal("workspace received API credentials")
+	}
+}
