@@ -68,7 +68,7 @@ New agent sessions receive three tools:
    **Release deletes the pod and PVC.** Reconciliation removes its host registration.
 
 The same operations are plugin RPCs: `environment.create`, `environment.list` and
-`environment.release`; typed contracts live in `plugin/contracts.ts`. List/create
+`environment.release`; typed contracts live in `plugin/shared/contracts.ts`. List/create
 reconcile host registrations, including optional reverse links. A five-second
 background reconciliation loop starts on the first plugin call or agent session
 open, and resumes the same way after a plugin restart. A Ready pod can still have a connecting or failed

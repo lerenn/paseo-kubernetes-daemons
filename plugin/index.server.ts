@@ -2,8 +2,8 @@ import type { PaseoApi } from '@getpaseo/client';
 import type { PluginServerContext } from '@getpaseo/plugin/server';
 import { defineAgentTool } from '@getpaseo/plugin/server';
 import { z } from 'zod';
-import { createEnvironment, listEnvironments, releaseEnvironment, requestSchema } from './contracts.js';
-import { create, list, release } from './backend.js';
+import { createEnvironment, listEnvironments, releaseEnvironment, requestSchema } from './shared/contracts.js';
+import { create, list, release } from './server/backend.js';
 
 export default function contribute(server: PluginServerContext) {
   let active: PaseoApi | undefined;

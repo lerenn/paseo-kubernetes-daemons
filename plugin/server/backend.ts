@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { PaseoApi } from '@getpaseo/client';
-import { nameSchema } from './contracts.js';
+import { nameSchema } from '../shared/contracts.js';
 
 export interface Environment {
   metadata: { name: string; uid: string; deletionTimestamp?: string };
