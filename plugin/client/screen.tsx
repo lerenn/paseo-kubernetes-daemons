@@ -553,7 +553,7 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
                 setUrls({});
               }}
               placeholder="/path/to/your/repository (optional)"
-              hint="A checkout on the main daemon. Leave empty to use your global Codex configuration."
+              hint="Optional checkout on the main daemon. Leave empty to discover provider credentials and MCPs configured on this host."
               disabled={busy}
             />
             {currentBundle && !inventory && (
