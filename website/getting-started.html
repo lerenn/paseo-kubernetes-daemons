@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started · Paseo Kubernetes Workspaces</title>
+<meta name="description" content="Deploy the operator, install the companion plugin and connect your first isolated Paseo workspace daemon.">
+<meta name="theme-color" content="#101615">
+<link rel="canonical" href="https://kubernetes-workspaces.paseo.lerenn.dev/getting-started.html">
+<meta property="og:title" content="Getting started · Paseo Kubernetes Workspaces">
+<meta property="og:description" content="Deploy the operator, install the companion plugin and connect your first isolated Paseo workspace daemon.">
+<meta property="og:type" content="website"><meta property="og:url" content="https://kubernetes-workspaces.paseo.lerenn.dev/getting-started.html">
+<meta property="og:image" content="https://kubernetes-workspaces.paseo.lerenn.dev/assets/logo.png">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="assets/logo.png">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="site"><div class="inner"><a class="brand" href="index.html"><img src="assets/logo.png" width="24" height="24" alt="">Kubernetes Workspaces</a>
+<nav aria-label="Main navigation"><a href="index.html">Home</a><a href="getting-started.html" aria-current="page">Getting started</a><a href="reference.html">Reference</a><a href="how-it-works.html">How it works</a><a href="https://github.com/lerenn/paseo-kubernetes-workspaces">GitHub</a></nav></div></header>
+<main id="content">
+<h1>Getting started</h1><p class="lead">Deploy the operator once, then request workspace environments from your main Paseo daemon.</p>
+<h2>Requirements</h2><ul><li>Kubernetes 1.32+ with dynamic PVC provisioning.</li><li>Paseo 0.15.3+ on your main daemon and workspace daemons.</li><li>Your main daemon can resolve and reach cluster Service addresses. Running it in the cluster is the simplest setup.</li><li><code>kubectl</code> on the main daemon, with access to the managed namespace.</li><li>Docker for image builds; Node 22+ for plugin development.</li></ul>
+<h2>Build your images</h2><p>Clone the repository. Replace <code>your-registry</code> with a registry your cluster can pull from.</p>
+<pre><code>git clone https://github.com/lerenn/paseo-kubernetes-workspaces.git
+cd paseo-kubernetes-workspaces
+
+docker build -t your-registry/paseo-workspaces-operator:0.1.0 .
+docker build -t your-registry/paseo-workspace:0.16.2 images/workspace
+docker push your-registry/paseo-workspaces-operator:0.1.0
+docker push your-registry/paseo-workspace:0.16.2</code></pre>
+<p>The base workspace image contains Paseo and basic development utilities. Install your agent provider executables in a derived image and inject their credentials through a Kubernetes Secret.</p>
+<h2>Deploy the operator</h2><p>Set the operator image in <code>config/operator.yaml</code> to the image you just pushed, then apply the manifests.</p>
+<pre><code>kubectl apply -f config/crd.yaml
+kubectl apply -f config/operator.yaml
+# Optional: cap aggregate workspace resources.
+kubectl apply -f config/quota.yaml</code></pre>
+<h2>Configure the main daemon</h2><p>Set these variables in the environment of the main daemon, then restart it. Shell exports in a separate terminal do not change an already running daemon.</p>
+<pre><code>PASEO_WORKSPACE_IMAGE=your-registry/paseo-workspace:0.16.2
+PASEO_WORKSPACE_NAMESPACE=paseo-workspaces
+PASEO_WORKSPACE_CLUSTER_ID=my-cluster
+# Optional: reverse registration for messages back to the main daemon.
+PASEO_MAIN_CONNECTION=main-daemon.paseo-workspaces.svc:6767
+# Optional: inject credentials into workspace pods.
+PASEO_WORKSPACE_SECRET=workspace-credentials</code></pre>
+<p>Apply <code>config/plugin-rbac.yaml</code> and bind its Role to the main daemon’s ServiceAccount. Alternatively, grant equivalent access through its kubeconfig. The main daemon needs permission to get, list, create, patch and delete <code>PaseoWorkspace</code> resources.</p>
+<p>Enable plugins in Paseo settings and install the companion from the cloned checkout:</p>
+<pre><code>cd plugin
+npm ci
+npm run typecheck
+paseo plugin install &quot;$PWD&quot;</code></pre>
+<h2>Start your first workspace</h2><ol class="steps"><li>Open a new agent session so it receives the companion’s tools.</li><li>Call <code>kubernetes_workspace_create({ "name": "demo" })</code>.</li><li>Poll <code>kubernetes_workspace_list({})</code> until the environment’s <code>hostStatus</code> is <code>online</code>.</li><li>Use the returned <code>serverId</code> with Paseo’s cross-host tools. Create a Paseo workspace at <code>/workspace</code> on that daemon, then start agents there.</li><li>Export results, then call <code>kubernetes_workspace_release({ "name": "demo" })</code>.</li></ol>
+<div class="note warn"><strong>Release deletes the pod and PVC.</strong> Use a StorageClass with reclaim policy <code>Delete</code> if physical storage should also be removed.</div>
+<h2>Check an environment</h2>
+<pre><code>kubectl -n paseo-workspaces get pw
+kubectl -n paseo-workspaces describe pod pw-demo
+kubectl -n paseo-workspaces logs pw-demo</code></pre>
+<p>A Ready pod is not necessarily a connected host. Check the companion’s <code>hostStatus</code> and <code>error</code> fields for registration problems. Configure daemon authentication and network policy for your cluster; an optional policy is provided in <code>config/network-policy.yaml</code>.</p>
+<p>See the <a href="reference.html">reference</a> for all configuration options.</p></main>
+<footer class="site"><div class="inner">Kubernetes Workspaces for <a href="https://paseo.sh">Paseo</a>. Source on <a href="https://github.com/lerenn/paseo-kubernetes-workspaces">GitHub</a>.<br>Also for Paseo: <a href="https://mail.paseo.lerenn.dev">Mail</a> · <a href="https://playbooks.paseo.lerenn.dev">Playbooks</a></div></footer>
+</body></html>

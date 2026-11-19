@@ -106,3 +106,10 @@ make build
 Tests cover reconciliation, Pod recovery, ownership isolation and host registration
 logic. CI also installs a temporary Kubernetes API server to validate CRD admission
 and creation of real Pod, Service and PVC objects. See [the architecture decision](docs/architecture.md) for scope and limits.
+
+## Website
+
+The static documentation site lives in `website/`, following the Paseo Mail and
+Playbooks sites. Preview it with `python3 -m http.server 8091 --directory website`.
+The Pages workflow deploys changes on `main`; the custom domain is
+`kubernetes-workspaces.paseo.lerenn.dev` (DNS must point to GitHub Pages).
