@@ -1,0 +1,12 @@
+apiVersion: workspaces.paseo.sh/v1alpha1
+kind: PaseoWorkspace
+metadata:
+  name: example
+  namespace: paseo-workspaces
+spec:
+  # Build an image containing Paseo >=0.16.2 and your agent provider executables.
+  image: your-registry/paseo-workspace:0.16.2
+  storage: 10Gi
+  resources:
+    requests: {cpu: 250m, memory: 512Mi, ephemeral-storage: 1Gi}
+    limits: {cpu: '2', memory: 4Gi, ephemeral-storage: 4Gi}

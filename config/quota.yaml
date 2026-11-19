@@ -1,0 +1,15 @@
+# Optional cluster admission limits. Excess pods stay Pending until capacity is freed.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: workspace-capacity
+  namespace: paseo-workspaces
+spec:
+  hard:
+    pods: '8'
+    requests.cpu: '8'
+    requests.memory: 16Gi
+    limits.cpu: '16'
+    limits.memory: 32Gi
+    requests.storage: 80Gi
+    persistentvolumeclaims: '8'

@@ -1,0 +1,1 @@
+{"id":"kubernetes-workspaces","name":"Kubernetes Workspaces","description":"Provision isolated workspace daemons through the Paseo Kubernetes operator","requirements":{"paseo":">=0.15.3"}}
