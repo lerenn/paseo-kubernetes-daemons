@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import {
+  Badge,
+  Button,
+  Card,
+  Choice,
+  Disclosure,
+  Field,
+} from "./components.js";
+import {
   useRpc,
   useSettings,
   type PluginScreenProps,
@@ -9,10 +17,7 @@ import {
   ExternalLink,
   Loading,
   ScrollView,
-  SettingsAction,
-  SettingsInput,
-  SettingsSection,
-  SettingsSwitch,
+  Icon,
   useToast,
 } from "@getpaseo/plugin/client/ui";
 import {
@@ -66,6 +71,7 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
     [oauth, setOauth] = useState(false),
     [name, setName] = useState(""),
     [rows, setRows] = useState<Environment[]>([]);
+  const [width, setWidth] = useState(0);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     [deleting, setDeleting] = useState<string | null>(null);
@@ -130,456 +136,890 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
   if (settings.status === "loading") return <Loading />;
   const text = {
     color: theme.colors.foregroundMuted,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 21,
   };
+  const connected = setup?.operator === "ready";
+  const wide = width > 860;
+  const save = async () => {
+    if (settings.status !== "ready") return;
+    if (!(await settings.save(settingsSchema.parse(draft), settings.revision)))
+      throw new Error("Settings changed. Reload and try again.");
+    setSetup(null);
+    toast.show("Connection saved.");
+  };
+  const check = async () => {
+    const result = await inspect({});
+    if (
+      !draft.context &&
+      result.context &&
+      result.context !== "in-cluster / default" &&
+      settings.status === "ready"
+    ) {
+      const next = { ...draft, context: result.context };
+      if (!(await settings.save(next, settings.revision)))
+        throw new Error(
+          "Could not save the detected context. Reload and try again.",
+        );
+      setDraft(next);
+    }
+    setSetup(result);
+    if (result.operator === "ready") await refresh();
+  };
+  const find = async () => {
+    setInventory(await discover({ repositoryPath: repo }));
+    setProviders([]);
+    setMcps([]);
+    setOauth(false);
+  };
+  const syncSelected = async () => {
+    const input = syncSelection.parse({
+      providers,
+      mcps,
+      repositoryPath: repo,
+      trustRepository: trust,
+      revision,
+      mcpUrls: Object.fromEntries(Object.entries(urls).filter(([, v]) => v)),
+      includeMcpOAuthFile: oauth,
+    });
+    const profile = await sync(input);
+    if (settings.status !== "ready")
+      throw new Error("Reload settings to select the new snapshot.");
+    const next = { ...draft, bundle: profile };
+    if (!(await settings.save(next, settings.revision)))
+      throw new Error(
+        "Snapshot created, but settings changed. Re-sync to select it.",
+      );
+    setDraft(next);
+    toast.show("Credentials ready for new workspaces.");
+  };
+  const chooseProvider = (id: string, selected: boolean) =>
+    setProviders(
+      toggle(
+        providers.filter(
+          (p) =>
+            !selected ||
+            (id === "codex-login"
+              ? p !== "openai-key"
+              : id === "openai-key"
+                ? p !== "codex-login"
+                : true),
+        ),
+        id,
+        selected,
+      ),
+    );
+  const providerLabel = (id: string, label: string) =>
+    ({
+      "codex-login": "Codex subscription",
+      "openai-key": "OpenAI API key",
+      "anthropic-key": "Anthropic API key",
+      "gemini-key": "Gemini API key",
+      "github-token": "GitHub repository access",
+    })[id] ?? label;
+  const canCreate =
+    connected && saved && !!currentBundle && !!draft.image && !!name && !busy;
   return (
     <ScrollView
-      contentContainerStyle={{ padding: 24, gap: 24, paddingBottom: 60 }}
+      style={{ flex: 1, backgroundColor: theme.colors.surface0 }}
+      contentContainerStyle={{
+        paddingHorizontal: width && width < 600 ? 16 : 32,
+        paddingTop: 32,
+        paddingBottom: 48,
+      }}
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
     >
-      <Text
-        style={{
-          color: theme.colors.foreground,
-          fontSize: 22,
-          fontWeight: "600",
-        }}
+      <View
+        style={{ width: "100%", maxWidth: 1080, alignSelf: "center", gap: 24 }}
       >
-        Kubernetes Workspaces
-      </Text>
-      <Text style={text}>
-        Connect a cluster, choose the main host’s credentials to reuse, and
-        start isolated workspace daemons.
-      </Text>
-      {error && (
-        <Text
-          accessibilityRole="alert"
-          style={{ ...text, color: theme.colors.statusDanger }}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
         >
-          {error}
-        </Text>
-      )}
-      {settings.saveError && (
-        <Text style={{ ...text, color: theme.colors.statusDanger }}>
-          {settings.saveError}
-        </Text>
-      )}
-      {settings.status !== "ready" && (
-        <SettingsAction
-          label="Settings could not be loaded"
-          hint={
-            settings.status === "invalid" || settings.status === "error"
-              ? settings.error
-              : undefined
-          }
-          actionLabel="Reload settings"
-          onPress={() => void settings.reload()}
-        />
-      )}
-      <SettingsSection title="Cluster connection">
-        <SettingsInput
-          key={
-            "context" + (settings.status === "ready" ? settings.revision : "")
-          }
-          label="Kubernetes context"
-          hint="Leave empty for kubectl’s current context or in-cluster service account."
-          initialValue={draft.context}
-          onChangeText={(v) => patch("context", v)}
-          disabled={busy}
-        />
-        <SettingsInput
-          key={
-            "namespace" + (settings.status === "ready" ? settings.revision : "")
-          }
-          label="Namespace"
-          initialValue={draft.namespace}
-          onChangeText={(v) => patch("namespace", v)}
-          disabled={busy}
-        />
-        <SettingsInput
-          key={
-            "cluster" + (settings.status === "ready" ? settings.revision : "")
-          }
-          label="Cluster ID"
-          hint="A stable identifier for this cluster’s registrations."
-          initialValue={draft.clusterId}
-          onChangeText={(v) => patch("clusterId", v)}
-          disabled={busy}
-        />
-        <SettingsInput
-          key={"image" + (settings.status === "ready" ? settings.revision : "")}
-          label="Workspace image"
-          hint="Use the new bootstrap-enabled image built from images/workspace/."
-          initialValue={draft.image}
-          onChangeText={(v) => patch("image", v)}
-          disabled={busy}
-        />
-        <SettingsInput
-          key={"main" + (settings.status === "ready" ? settings.revision : "")}
-          label="Main daemon connection (optional)"
-          hint="An endpoint reachable from pods; enables reverse host registration."
-          initialValue={draft.mainConnection}
-          onChangeText={(v) => patch("mainConnection", v)}
-          disabled={busy}
-        />
-        <SettingsSwitch
-          label="Ephemeral workspace storage"
-          hint="Use emptyDir: deleting or replacing the pod discards its data. Turn off to use a PVC until the environment is released."
-          value={draft.ephemeral}
-          onValueChange={(v) => patch("ephemeral", v)}
-          disabled={busy}
-        />
-        <SettingsAction
-          label="Save connection"
-          actionLabel="Save"
-          disabled={busy || settings.status !== "ready"}
-          onPress={() =>
-            void action(async () => {
-              if (settings.status !== "ready") return;
-              const config = settingsSchema.parse(draft);
-              if (await settings.save(config, settings.revision)) {
-                setSetup(null);
-                toast.show("Connection saved.");
-              } else
-                throw new Error(
-                  "Settings changed or could not be saved. Reload and try again.",
-                );
-            })
-          }
-        />
-        <SettingsAction
-          label="Check operator"
-          hint="Uses Kubernetes API access; no operator Service URL is needed."
-          actionLabel="Check connection"
-          disabled={busy || !saved}
-          onPress={() =>
-            void action(async () => {
-              const result = await inspect({});
-              if (
-                !draft.context &&
-                result.context &&
-                result.context !== "in-cluster / default" &&
-                settings.status === "ready"
-              ) {
-                const next = { ...draft, context: result.context };
-                if (!(await settings.save(next, settings.revision)))
-                  throw new Error(
-                    "Could not save the detected Kubernetes context. Reload settings and try again.",
-                  );
-                setDraft(next);
-              }
-              setSetup(result);
-              if (result.operator === "ready") await refresh();
-            })
-          }
-        />
-        {setup && (
-          <Text
+          <View style={{ flex: 1, minWidth: 200, gap: 8 }}>
+            <Text
+              style={{
+                fontSize: 27,
+                lineHeight: 34,
+                fontWeight: "600",
+                letterSpacing: -0.5,
+                color: theme.colors.foreground,
+              }}
+            >
+              Your workspace cloud
+            </Text>
+            <Text style={{ ...text, fontSize: 15, lineHeight: 23 }}>
+              Connect once. Give every project a place of its own.
+            </Text>
+          </View>
+          <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-workspaces/blob/main/docs/setup.md">
+            Setup guide
+          </ExternalLink>
+        </View>
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 20,
+            paddingVertical: 2,
+          }}
+        >
+          {[
+            {
+              label: connected ? "Cluster connected" : "Connect cluster",
+              done: connected,
+            },
+            {
+              label: currentBundle ? "Credentials ready" : "Choose credentials",
+              done: !!currentBundle,
+            },
+            {
+              label: rows.length
+                ? `${rows.length} workspace${rows.length === 1 ? "" : "s"}`
+                : "Launch workspace",
+              done: rows.length > 0,
+            },
+          ].map((item) => (
+            <View
+              key={item.label}
+              style={{ flexDirection: "row", alignItems: "center", gap: 7 }}
+            >
+              <Icon
+                name={item.done ? "CircleCheck" : "Circle"}
+                size={15}
+                color={
+                  item.done
+                    ? theme.colors.statusSuccess
+                    : theme.colors.foregroundMuted
+                }
+              />
+              <Text
+                style={{
+                  ...text,
+                  color: item.done
+                    ? theme.colors.foreground
+                    : theme.colors.foregroundMuted,
+                }}
+              >
+                {item.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+        {(error || settings.saveError) && (
+          <View
+            accessibilityRole="alert"
             style={{
-              ...text,
-              color:
-                setup.operator === "ready"
-                  ? theme.colors.statusSuccess
-                  : theme.colors.statusWarning,
+              padding: 14,
+              borderWidth: 1,
+              borderColor: theme.colors.statusDanger,
+              borderRadius: 10,
+              backgroundColor: theme.colors.surface1,
             }}
           >
-            {setup.message} {setup.context} / {setup.namespace}
-          </Text>
+            <Text style={{ ...text, color: theme.colors.statusDanger }}>
+              {error ?? settings.saveError}
+            </Text>
+          </View>
         )}
-      </SettingsSection>
-      {setup?.operator !== "ready" && (
-        <SettingsSection title="Install the operator">
-          <Text style={text}>
-            Build and push the operator and workspace images. Apply
-            config/crd.yaml and config/operator.yaml after setting the operator
-            image and namespace. Give the main daemon the Role in
-            config/plugin-rbac.yaml and bind it to its ServiceAccount. The Role
-            includes permission to create credential Secrets.
-          </Text>
-          <Text selectable style={{ ...text, fontFamily: "monospace" }}>
-            kubectl apply -f config/crd.yaml{"\n"}kubectl apply -f
-            config/operator.yaml{"\n"}kubectl apply -f config/plugin-rbac.yaml
-          </Text>
-          <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-workspaces/blob/main/docs/setup.md">
-            Read installation and bootstrap instructions
-          </ExternalLink>
-        </SettingsSection>
-      )}
-      <SettingsSection title="Provider and MCP credentials">
-        <SettingsInput
-          label="Local repository path (optional)"
-          hint="A checkout on the main host. Its origin and .codex/config.toml will be used to prepare new pods."
-          initialValue={repo}
-          onChangeText={(v) => {
-            setRepo(v);
-            setInventory(null);
-            setMcps([]);
-            setTrust(false);
-            setUrls({});
+        {settings.status !== "ready" && (
+          <View style={{ gap: 12 }}>
+            <Text style={text}>
+              {settings.status === "invalid" || settings.status === "error"
+                ? settings.error
+                : "Settings are unavailable."}
+            </Text>
+            <Button
+              theme={theme}
+              label="Reload settings"
+              icon="RefreshCw"
+              onPress={() => void settings.reload()}
+            />
+          </View>
+        )}
+        <View
+          style={{
+            flexDirection: wide ? "row" : "column",
+            alignItems: "stretch",
+            gap: 20,
           }}
-          disabled={busy}
-        />
-        <SettingsAction
-          label="Find available credentials and MCPs"
-          hint="Displays names and availability only. No credential values are sent to this screen."
-          actionLabel="Discover"
-          disabled={busy}
-          onPress={() =>
-            void action(async () => {
-              const data = await discover({ repositoryPath: repo });
-              setInventory(data);
-              setProviders([]);
-              setMcps([]);
-              setOauth(false);
-            })
-          }
-        />
-        {inventory && (
-          <>
-            {inventory.providers.map((p) => (
-              <SettingsSwitch
-                key={p.id}
-                label={p.label}
-                hint={
-                  p.available
-                    ? "Available on the main host"
-                    : "Unavailable; file-backed credentials or the named environment variable are required"
+        >
+          <Card
+            theme={theme}
+            title="Cluster"
+            grow={wide}
+            icon="Server"
+            description="The home for your workspace pods."
+            badge={
+              <Badge
+                theme={theme}
+                label={
+                  connected
+                    ? "Connected"
+                    : setup?.operator === "missing"
+                      ? "Setup needed"
+                      : "Not connected"
                 }
-                value={providers.includes(p.id)}
-                onValueChange={(v) =>
-                  setProviders(
-                    toggle(
-                      providers.filter(
-                        (id) =>
-                          !v ||
-                          (p.id === "codex-login"
-                            ? id !== "openai-key"
-                            : p.id === "openai-key"
-                              ? id !== "codex-login"
-                              : true),
-                      ),
-                      p.id,
-                      v,
-                    ),
-                  )
-                }
-                disabled={busy || !p.available}
+                tone={connected ? "success" : "muted"}
               />
-            ))}
-            {inventory.mcps.length === 0 && (
+            }
+          >
+            <Field
+              theme={theme}
+              label="Workspace image"
+              placeholder="registry.example.com/paseo-workspace:latest"
+              value={draft.image}
+              onChange={(v) => patch("image", v)}
+              disabled={busy}
+            />
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <Icon
+                name="Network"
+                size={15}
+                color={theme.colors.foregroundMuted}
+              />
               <Text style={text}>
-                No MCP definitions found in Codex’s user or repository config.
+                {draft.context ||
+                  setup?.context ||
+                  "Current Kubernetes context"}{" "}
+                · {draft.namespace}
+              </Text>
+            </View>
+            {setup && !connected && (
+              <View
+                style={{
+                  backgroundColor: theme.colors.surface2,
+                  borderRadius: 8,
+                  padding: 12,
+                  gap: 5,
+                }}
+              >
+                <Text
+                  style={{
+                    ...text,
+                    color: theme.colors.foreground,
+                    fontWeight: "500",
+                  }}
+                >
+                  {setup.operator === "missing"
+                    ? "Install the operator to connect"
+                    : "Connection needs attention"}
+                </Text>
+                <Text style={text}>
+                  {setup.operator === "missing"
+                    ? "A one-time installation prepares your cluster for workspace pods."
+                    : setup.message}
+                </Text>
+              </View>
+            )}
+            <Disclosure
+              theme={theme}
+              label="Advanced cluster settings"
+              summary="Connection, namespace & storage"
+            >
+              <Field
+                theme={theme}
+                label="Kubernetes context"
+                value={draft.context}
+                onChange={(v) => patch("context", v)}
+                placeholder="Use current context"
+                hint="Leave empty to use the current context or in-cluster access."
+                disabled={busy}
+              />
+              <Field
+                theme={theme}
+                label="Namespace"
+                value={draft.namespace}
+                onChange={(v) => patch("namespace", v)}
+                disabled={busy}
+              />
+              <Field
+                theme={theme}
+                label="Cluster ID"
+                value={draft.clusterId}
+                onChange={(v) => patch("clusterId", v)}
+                hint="A stable name to distinguish this cluster."
+                disabled={busy}
+              />
+              <Field
+                theme={theme}
+                label="Main daemon endpoint"
+                value={draft.mainConnection}
+                onChange={(v) => patch("mainConnection", v)}
+                placeholder="Optional"
+                hint="Enable communication initiated by pod agents back to the main daemon."
+                disabled={busy}
+              />
+              <Choice
+                theme={theme}
+                label="Ephemeral storage"
+                description="Discard files when the pod is deleted or replaced. Turn off to keep a persistent volume until release."
+                checked={draft.ephemeral}
+                onChange={(v) => patch("ephemeral", v)}
+                disabled={busy}
+              />
+            </Disclosure>
+            {!connected && (
+              <Disclosure
+                theme={theme}
+                title="Installation instructions"
+                summary="Commands and operator requirements"
+              >
+                <Text style={text}>
+                  Build and push the operator and workspace images, update the
+                  image in the deployment manifest, then apply:
+                </Text>
+                <View
+                  style={{
+                    padding: 12,
+                    borderRadius: 8,
+                    backgroundColor: theme.colors.surface0,
+                  }}
+                >
+                  <Text selectable style={{ ...text, fontFamily: "monospace" }}>
+                    kubectl apply -f config/crd.yaml{"\n"}kubectl apply -f
+                    config/operator.yaml{"\n"}kubectl apply -f
+                    config/plugin-rbac.yaml
+                  </Text>
+                </View>
+                <Text style={text}>
+                  Use your chosen namespace and bind the plugin Role to the main
+                  daemon’s ServiceAccount.
+                </Text>
+                <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-workspaces/blob/main/docs/setup.md">
+                  Full installation guide
+                </ExternalLink>
+              </Disclosure>
+            )}
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 10,
+                flexWrap: "wrap",
+                marginTop: "auto",
+              }}
+            >
+              <Button
+                theme={theme}
+                label={busy ? "Working…" : "Save changes"}
+                primary
+                disabled={busy || settings.status !== "ready" || saved}
+                onPress={() => void action(save)}
+              />
+              <Button
+                theme={theme}
+                label="Check connection"
+                icon="RefreshCw"
+                disabled={busy || !saved}
+                onPress={() => void action(check)}
+              />
+            </View>
+            {!saved && <Text style={text}>You have unsaved changes.</Text>}
+          </Card>
+          <Card
+            theme={theme}
+            title="Credentials"
+            grow={wide}
+            icon="KeyRound"
+            description="Reuse the accounts you already have."
+            badge={
+              <Badge
+                theme={theme}
+                label={currentBundle ? "Synced" : "Not synced"}
+                tone={currentBundle ? "success" : "muted"}
+              />
+            }
+          >
+            <Field
+              theme={theme}
+              label="Repository"
+              value={repo}
+              onChange={(v) => {
+                setRepo(v);
+                setInventory(null);
+                setMcps([]);
+                setTrust(false);
+                setUrls({});
+              }}
+              placeholder="/path/to/your/repository (optional)"
+              hint="A checkout on the main daemon. Leave empty to use your global Codex configuration."
+              disabled={busy}
+            />
+            {currentBundle && !inventory && (
+              <View
+                style={{
+                  padding: 12,
+                  borderRadius: 8,
+                  backgroundColor: theme.colors.surface2,
+                  gap: 5,
+                }}
+              >
+                <Text
+                  style={{
+                    ...text,
+                    color: theme.colors.foreground,
+                    fontWeight: "500",
+                  }}
+                >
+                  Credentials ready for new workspaces
+                </Text>
+                <Text style={text}>
+                  {currentBundle.providers
+                    .map((p) => providerLabel(p, p))
+                    .join(", ") || "Configuration only"}
+                  {currentBundle.mcps.length
+                    ? ` · ${currentBundle.mcps.length} MCP server${currentBundle.mcps.length === 1 ? "" : "s"}`
+                    : ""}
+                </Text>
+              </View>
+            )}
+            {!currentBundle && !inventory && (
+              <Text style={text}>
+                {draft.bundle
+                  ? "Your saved credentials belong to another connection. Sync them to this cluster."
+                  : "Choose the providers and MCP servers you want to bring into your workspaces."}
               </Text>
             )}
-            {inventory.mcps.map((m) => (
-              <View key={m.name}>
-                <SettingsSwitch
-                  label={m.name}
-                  hint={`${m.transport}${m.environment.length ? " · environment: " + m.environment.join(", ") : ""}${m.missing.length ? " · missing: " + m.missing.join(", ") : ""}${m.transport === "STDIO" ? " · its executable must be installed in the workspace image" : ""}`}
-                  value={mcps.includes(m.name)}
-                  onValueChange={(v) => setMcps(toggle(mcps, m.name, v))}
-                  disabled={busy || m.missing.length > 0}
-                />
-                {m.transport === "HTTP" && mcps.includes(m.name) && (
-                  <SettingsInput
-                    label={`Pod URL for ${m.name}${m.needsUrl ? " (required)" : " (optional)"}`}
-                    hint="Use a Service or endpoint reachable from pods. localhost on the main host cannot be reused."
-                    initialValue={urls[m.name] ?? ""}
-                    onChangeText={(v) =>
-                      setUrls((prev) => ({ ...prev, [m.name]: v }))
-                    }
-                    disabled={busy}
-                  />
+            <View style={{ alignSelf: "flex-start" }}>
+              <Button
+                theme={theme}
+                label={inventory ? "Refresh discovery" : "Find credentials"}
+                icon="Search"
+                primary={!inventory && !currentBundle}
+                disabled={busy}
+                onPress={() => void action(find)}
+              />
+            </View>
+            {inventory && (
+              <View style={{ gap: 12 }}>
+                <Text
+                  style={{
+                    ...text,
+                    fontWeight: "600",
+                    color: theme.colors.foreground,
+                  }}
+                >
+                  Providers
+                </Text>
+                {inventory.providers
+                  .filter((p) => p.available)
+                  .map((p) => (
+                    <Choice
+                      key={p.id}
+                      theme={theme}
+                      label={providerLabel(p.id, p.label)}
+                      description={
+                        p.id === "codex-login"
+                          ? "Use your existing subscription."
+                          : p.id === "github-token"
+                            ? "For private GitHub repositories."
+                            : p.id === "anthropic-key" || p.id === "gemini-key"
+                              ? "Requires this provider in your workspace image."
+                              : undefined
+                      }
+                      checked={providers.includes(p.id)}
+                      onChange={(v) => chooseProvider(p.id, v)}
+                      disabled={busy}
+                    />
+                  ))}
+                {!inventory.providers.some((p) => p.available) && (
+                  <Text style={text}>
+                    No reusable provider credentials found on the main host.
+                  </Text>
+                )}
+                {inventory.mcps.length > 0 && (
+                  <View
+                    style={{
+                      gap: 4,
+                      borderTopWidth: 1,
+                      borderColor: theme.colors.border,
+                      paddingTop: 14,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        ...text,
+                        fontWeight: "600",
+                        color: theme.colors.foreground,
+                      }}
+                    >
+                      MCP servers
+                    </Text>
+                    {inventory.mcps.map((m) => (
+                      <View key={m.name}>
+                        <Choice
+                          theme={theme}
+                          label={m.name}
+                          description={
+                            m.missing.length
+                              ? `Missing: ${m.missing.join(", ")}`
+                              : m.transport === "STDIO"
+                                ? "Requires its executable in the workspace image"
+                                : undefined
+                          }
+                          checked={mcps.includes(m.name)}
+                          onChange={(v) => setMcps(toggle(mcps, m.name, v))}
+                          disabled={busy || m.missing.length > 0}
+                        />
+                        {m.transport === "HTTP" &&
+                          mcps.includes(m.name) &&
+                          m.needsUrl && (
+                            <Field
+                              theme={theme}
+                              label={`Reachable URL for ${m.name}`}
+                              value={urls[m.name] ?? ""}
+                              onChange={(v) =>
+                                setUrls((prev) => ({ ...prev, [m.name]: v }))
+                              }
+                              hint="Replace localhost with an endpoint reachable from pods."
+                              disabled={busy}
+                            />
+                          )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+                {inventory.repositoryUrl && (
+                  <View
+                    style={{
+                      borderTopWidth: 1,
+                      borderColor: theme.colors.border,
+                      paddingTop: 10,
+                    }}
+                  >
+                    <Text selectable style={text}>
+                      {inventory.repositoryUrl}
+                    </Text>
+                    <Choice
+                      theme={theme}
+                      label="Trust this repository in new workspaces"
+                      description="Approve its project configuration once for future pods."
+                      checked={trust}
+                      onChange={setTrust}
+                      disabled={busy}
+                    />
+                  </View>
                 )}
               </View>
-            ))}
-            {inventory.oauthFile && (
-              <SettingsSwitch
-                label="Copy the entire file-backed MCP OAuth cache"
-                hint="Explicitly includes all entries in Codex’s .credentials.json, not only selected MCPs. OS-keychain credentials cannot be exported."
-                value={oauth}
-                onValueChange={setOauth}
-                disabled={busy || mcps.length === 0}
-              />
             )}
-            {inventory.repositoryUrl && (
-              <>
-                <Text selectable style={text}>
-                  {inventory.repositoryUrl}
+            <Disclosure
+              theme={theme}
+              label="Advanced credential settings"
+              summary="OAuth, revisions & sync details"
+            >
+              {inventory?.repositoryUrl && (
+                <Field
+                  theme={theme}
+                  label="Branch, tag or commit"
+                  value={revision}
+                  onChange={setRevision}
+                  placeholder="Default branch"
+                  disabled={busy}
+                />
+              )}
+              {inventory?.mcps
+                .filter(
+                  (m) =>
+                    m.transport === "HTTP" &&
+                    mcps.includes(m.name) &&
+                    !m.needsUrl,
+                )
+                .map((m) => (
+                  <Field
+                    key={m.name}
+                    theme={theme}
+                    label={`Override URL for ${m.name}`}
+                    value={urls[m.name] ?? ""}
+                    onChange={(v) =>
+                      setUrls((prev) => ({ ...prev, [m.name]: v }))
+                    }
+                    placeholder="Keep configured URL"
+                    disabled={busy}
+                  />
+                ))}
+              {inventory?.oauthFile && (
+                <Choice
+                  theme={theme}
+                  label="Include the entire MCP OAuth cache"
+                  description="Copies all file-backed OAuth entries, including unselected servers. OS-keychain credentials are not exported."
+                  checked={oauth}
+                  onChange={setOauth}
+                  disabled={busy || !mcps.length}
+                />
+              )}
+              {inventory?.providers
+                .filter((p) => !p.available)
+                .map((p) => (
+                  <Choice
+                    key={p.id}
+                    theme={theme}
+                    label={providerLabel(p.id, p.label)}
+                    description="Not available on the main daemon."
+                    checked={false}
+                    onChange={() => {}}
+                    disabled
+                  />
+                ))}
+              <Text style={text}>
+                Only selected credentials are exported to Kubernetes Secrets in{" "}
+                {draft.namespace}. The panel never receives their values.
+              </Text>
+              <Text style={text}>
+                Credentials are snapshots. Existing pods keep their writable
+                copies. Re-sync after credentials change; OAuth refresh is not
+                coordinated between pods.
+              </Text>
+              {currentBundle && (
+                <View style={{ gap: 6 }}>
+                  <Text style={text}>
+                    Last synced:{" "}
+                    {new Date(currentBundle.syncedAt).toLocaleString()}
+                  </Text>
+                  <Text selectable style={{ ...text, fontFamily: "monospace" }}>
+                    {currentBundle.name}
+                  </Text>
+                </View>
+              )}
+            </Disclosure>
+            {inventory && (
+              <View style={{ gap: 9 }}>
+                <Button
+                  theme={theme}
+                  label={`Sync selection${providers.length + mcps.length ? ` (${providers.length + mcps.length})` : ""}`}
+                  icon="CloudUpload"
+                  primary
+                  disabled={
+                    busy ||
+                    !saved ||
+                    !connected ||
+                    (!!inventory.repositoryUrl && !trust)
+                  }
+                  onPress={() => void action(syncSelected)}
+                />
+                <Text style={text}>
+                  {!connected
+                    ? "Connect your cluster to sync this selection."
+                    : !saved
+                      ? "Save your connection changes before syncing."
+                      : "Only your selection will be shared with new workspaces."}
                 </Text>
-                <SettingsSwitch
-                  label="Approve this repository for workspace pods"
-                  hint="New pods clone this origin at /workspace/repository and trust its Codex project configuration. Only selected root-level MCP definitions are retained."
-                  value={trust}
-                  onValueChange={setTrust}
-                  disabled={busy}
-                />
-                <SettingsInput
-                  label="Branch, tag or commit (optional)"
-                  hint="Defaults to the origin’s default branch. Private HTTPS repositories can use the selected GitHub token."
-                  initialValue={revision}
-                  onChangeText={setRevision}
-                  disabled={busy}
-                />
-              </>
+              </View>
             )}
-            <Text style={text}>
-              Sync creates immutable credential snapshots in {draft.namespace}.
-              New workspaces use the saved snapshot; existing pods keep their
-              own writable copies. OAuth refresh is not coordinated across pods.
-              Re-sync from the main host when credentials change.
-            </Text>
-            <SettingsAction
-              label="Sync selected credentials and configuration"
-              actionLabel="Sync to Kubernetes"
-              disabled={
-                busy ||
-                !saved ||
-                setup?.operator !== "ready" ||
-                (!!inventory.repositoryUrl && !trust)
-              }
+          </Card>
+        </View>
+        <Card
+          theme={theme}
+          title="Workspaces"
+          icon="Boxes"
+          description="An isolated daemon for every project."
+          badge={
+            <Badge
+              theme={theme}
+              label={`${rows.length} workspace${rows.length === 1 ? "" : "s"}`}
+            />
+          }
+        >
+          <View
+            style={{
+              flexDirection: wide ? "row" : "column",
+              gap: 12,
+              alignItems: wide ? "flex-end" : "stretch",
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Field
+                theme={theme}
+                label="Workspace name"
+                placeholder="my-next-project"
+                value={name}
+                onChange={setName}
+                disabled={busy}
+              />
+            </View>
+            <Button
+              theme={theme}
+              label="Create workspace"
+              icon="Plus"
+              primary
+              disabled={!canCreate}
               onPress={() =>
                 void action(async () => {
-                  const input = syncSelection.parse({
-                    providers,
-                    mcps,
-                    repositoryPath: repo,
-                    trustRepository: trust,
-                    revision,
-                    mcpUrls: Object.fromEntries(
-                      Object.entries(urls).filter(([, v]) => v),
-                    ),
-                    includeMcpOAuthFile: oauth,
-                  });
-                  const profile = await sync(input);
-                  if (settings.status !== "ready")
-                    throw new Error(
-                      "Reload settings to select the new snapshot.",
-                    );
-                  const next = { ...draft, bundle: profile };
-                  if (!(await settings.save(next, settings.revision)))
-                    throw new Error(
-                      "Snapshot created, but settings changed. Re-sync to select it.",
-                    );
-                  setDraft(next);
-                  toast.show("Credential snapshot saved for new workspaces.");
+                  setRows((await create({ name })) as Environment[]);
+                  toast.show("Workspace requested.");
                 })
               }
             />
-          </>
-        )}
-        <Text style={text}>
-          {currentBundle
-            ? `Active snapshot: ${currentBundle.name}\nSynced ${currentBundle.syncedAt}\nProviders: ${currentBundle.providers.join(", ") || "none"} · MCPs: ${currentBundle.mcps.join(", ") || "none"}`
-            : draft.bundle
-              ? "The saved snapshot belongs to a different connection. Sync again for this connection."
-              : "No credential snapshot selected yet."}
-        </Text>
-      </SettingsSection>
-      <SettingsSection title="Workspace environments">
-        <SettingsInput
-          label="New environment name"
-          hint="Lowercase letters, digits and hyphens, up to 50 characters."
-          initialValue={name}
-          onChangeText={setName}
-          disabled={busy}
-        />
-        <SettingsAction
-          label="Create environment"
-          hint="Uses the active snapshot. The pod’s daemon appears as a connected host after bootstrap."
-          actionLabel="Create"
-          disabled={
-            busy ||
-            !saved ||
-            setup?.operator !== "ready" ||
-            !currentBundle ||
-            !draft.image ||
-            !name
-          }
-          onPress={() =>
-            void action(async () => {
-              setRows((await create({ name })) as Environment[]);
-              toast.show("Environment requested.");
-            })
-          }
-        />
-        <SettingsAction
-          label="Environment status"
-          actionLabel="Refresh"
-          disabled={busy || !saved || setup?.operator !== "ready"}
-          onPress={() => void action(refresh)}
-        />
-        {rows.map((row) => (
-          <View
-            key={row.name}
-            style={{
-              borderTopWidth: 1,
-              borderColor: theme.colors.border,
-              paddingVertical: 12,
-              gap: 8,
-            }}
-          >
-            <Text style={{ ...text, color: theme.colors.foreground }}>
-              {row.name} · {row.phase} · {row.hostStatus ?? "not registered"}
-            </Text>
-            {row.message && <Text style={text}>{row.message}</Text>}
-            {row.serverId && (
-              <Text selectable style={text}>
-                serverId: {row.serverId} · directory: {row.cwd}
-              </Text>
-            )}
-            {row.hostStatus === "online" && navigation && (
-              <SettingsAction
-                label="Open remote Paseo workspace"
-                actionLabel="Open workspace"
-                disabled={busy}
-                onPress={() =>
-                  void action(async () => {
-                    const address = await open({ name: row.name });
-                    navigation.openWorkspace(address);
-                  })
-                }
-              />
-            )}
-            {row.error?.message && (
-              <Text style={{ ...text, color: theme.colors.statusDanger }}>
-                {row.error.message}
-              </Text>
-            )}
-            {deleting === row.name ? (
-              <>
-                <Text style={{ ...text, color: theme.colors.statusWarning }}>
-                  Delete {row.name}, including its pod and workspace storage?
-                  Export results first.
-                </Text>
-                <SettingsAction
-                  label="Confirm release"
-                  actionLabel="Delete environment"
-                  disabled={busy}
-                  onPress={() =>
-                    void action(async () => {
-                      await release({ name: row.name });
-                      setDeleting(null);
-                      await refresh();
-                    })
-                  }
-                />
-                <SettingsAction
-                  label="Keep this environment"
-                  actionLabel="Cancel"
-                  onPress={() => setDeleting(null)}
-                />
-              </>
-            ) : (
-              <SettingsAction
-                label="Release workspace"
-                actionLabel="Release"
-                disabled={busy}
-                onPress={() => setDeleting(row.name)}
-              />
-            )}
+            <Button
+              theme={theme}
+              label="Refresh"
+              icon="RefreshCw"
+              disabled={busy || !saved || !connected}
+              onPress={() => void action(refresh)}
+            />
           </View>
-        ))}
-      </SettingsSection>
+          {rows.length === 0 ? (
+            <View
+              style={{
+                alignItems: "center",
+                gap: 9,
+                paddingVertical: 24,
+                borderWidth: 1,
+                borderStyle: "dashed",
+                borderColor: theme.colors.border,
+                borderRadius: 10,
+              }}
+            >
+              <Icon name="Box" size={28} color={theme.colors.foregroundMuted} />
+              <Text
+                style={{
+                  fontSize: 15,
+                  fontWeight: "500",
+                  color: theme.colors.foreground,
+                }}
+              >
+                Room for your next project
+              </Text>
+              <Text
+                style={{ ...text, textAlign: "center", paddingHorizontal: 16 }}
+              >
+                {connected && currentBundle
+                  ? "Create a workspace to start working in its own pod."
+                  : "Connect your cluster and sync credentials to get started."}
+              </Text>
+            </View>
+          ) : (
+            rows.map((row) => (
+              <View
+                key={row.name}
+                style={{
+                  borderTopWidth: 1,
+                  borderColor: theme.colors.border,
+                  paddingTop: 16,
+                  gap: 12,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <View style={{ flex: 1, minWidth: 160, gap: 5 }}>
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontWeight: "600",
+                        color: theme.colors.foreground,
+                      }}
+                    >
+                      {row.name}
+                    </Text>
+                    <Text style={text}>
+                      {row.hostStatus === "online"
+                        ? "Ready to work"
+                        : (row.hostStatus ?? row.phase)}
+                    </Text>
+                  </View>
+                  <Badge
+                    theme={theme}
+                    label={row.hostStatus === "online" ? "Online" : row.phase}
+                    tone={
+                      row.hostStatus === "online"
+                        ? "success"
+                        : row.phase === "Failed"
+                          ? "warning"
+                          : "muted"
+                    }
+                  />
+                  {row.hostStatus === "online" && navigation && (
+                    <Button
+                      theme={theme}
+                      label="Open workspace"
+                      primary
+                      disabled={busy}
+                      onPress={() =>
+                        void action(async () => {
+                          navigation.openWorkspace(
+                            await open({ name: row.name }),
+                          );
+                        })
+                      }
+                    />
+                  )}
+                  <Button
+                    theme={theme}
+                    label="Release"
+                    disabled={busy}
+                    onPress={() => setDeleting(row.name)}
+                  />
+                </View>
+                {row.message && <Text style={text}>{row.message}</Text>}
+                {row.error?.message && (
+                  <Text style={{ ...text, color: theme.colors.statusDanger }}>
+                    {row.error.message}
+                  </Text>
+                )}
+                {deleting === row.name && (
+                  <View
+                    style={{
+                      backgroundColor: theme.colors.surface2,
+                      padding: 14,
+                      borderRadius: 8,
+                      gap: 12,
+                    }}
+                  >
+                    <Text style={text}>
+                      Delete {row.name} and its workspace storage? Export your
+                      results first.
+                    </Text>
+                    <View
+                      style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}
+                    >
+                      <Button
+                        theme={theme}
+                        label="Delete workspace"
+                        danger
+                        disabled={busy}
+                        onPress={() =>
+                          void action(async () => {
+                            await release({ name: row.name });
+                            setDeleting(null);
+                            await refresh();
+                          })
+                        }
+                      />
+                      <Button
+                        theme={theme}
+                        label="Cancel"
+                        onPress={() => setDeleting(null)}
+                      />
+                    </View>
+                  </View>
+                )}
+                <Disclosure theme={theme} title="Connection details">
+                  <Text selectable style={text}>
+                    Server: {row.serverId ?? "Not registered"}
+                    {"\n"}Directory: {row.cwd}
+                  </Text>
+                </Disclosure>
+              </View>
+            ))
+          )}
+        </Card>
+      </View>
     </ScrollView>
   );
 }
