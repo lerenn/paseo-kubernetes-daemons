@@ -98,3 +98,12 @@ helm install paseo-workspaces ./charts/paseo-workspaces -n paseo-workspaces --cr
 `charts/paseo-workspaces/crds/` is a copy of `config/crd.yaml` (CI checks they match; refresh with `make chart-crd`).
 Helm installs CRDs once but never upgrades them: apply `config/crd.yaml` yourself when upgrading.
 The gateway is off by default; enabling it adds permissions to the operator Role.
+
+### Releases
+
+Pushing a `vX.Y.Z` tag publishes `ghcr.io/lerenn/paseo-workspaces-operator:X.Y.Z`, `ghcr.io/lerenn/paseo-workspace:X.Y.Z`
+and the chart `oci://ghcr.io/lerenn/charts/paseo-workspaces` (chart and app version X.Y.Z):
+
+```sh
+helm install paseo-workspaces oci://ghcr.io/lerenn/charts/paseo-workspaces --version X.Y.Z -n paseo-workspaces --create-namespace
+```
