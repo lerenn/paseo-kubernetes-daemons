@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: paseo-workspaces-operator
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: paseo-workspaces-operator
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [workspaces.paseo.sh]
+    resources: [paseoworkspaces]
+    verbs: {{ if .Values.gateway.enabled }}[get, list, watch, create, update, delete]{{ else }}[get, list, watch]{{ end }}
+  - apiGroups: [workspaces.paseo.sh]
+    resources: [paseoworkspaces/status]
+    verbs: [get, patch, update]
+  - apiGroups: ['']
+    resources: [pods, services, persistentvolumeclaims]
+    verbs: [get, list, watch, create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+{{- if .Values.gateway.enabled }}
+  - apiGroups: ['']
+    resources: [configmaps]
+    resourceNames: [paseo-workspaces-gateway]
+    verbs: [get]
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [paseo-workspaces-gateway-auth]
+    verbs: [get]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: paseo-workspaces-operator
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: paseo-workspaces-operator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: paseo-workspaces-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paseo-workspaces-operator
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: paseo-workspaces-operator}
+  template:
+    metadata:
+      labels: {app: paseo-workspaces-operator}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: paseo-workspaces-operator
+      containers:
+        - name: operator
+          image: {{ include "pw.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --namespace={{ .Release.Namespace }}
+            {{- if .Values.workspacePullSecret }}
+            - --workspace-pull-secret={{ .Values.workspacePullSecret }}
+            {{- end }}
+            {{- if .Values.gateway.enabled }}
+            - --gateway-listen=:{{ .Values.gateway.port }}
+            {{- with .Values.gateway.hostnames }}
+            - --gateway-hostnames={{ join "," . }}
+            {{- end }}
+            {{- end }}
+          {{- if .Values.gateway.enabled }}
+          ports:
+            - {name: gateway, containerPort: {{ .Values.gateway.port }}}
+          {{- end }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+{{- if .Values.gateway.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paseo-workspaces-gateway
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {app: paseo-workspaces-operator}
+  ports:
+    - {name: gateway, port: {{ .Values.gateway.port }}, targetPort: gateway}
+{{- end }}

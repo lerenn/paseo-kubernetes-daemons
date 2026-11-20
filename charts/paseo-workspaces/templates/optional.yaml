@@ -1,0 +1,67 @@
+{{- if .Values.pluginRole.enabled }}
+# Bind this Role to the ServiceAccount running the MAIN daemon (not workspace pods).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: paseo-workspaces-plugin
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [workspaces.paseo.sh]
+    resources: [paseoworkspaces]
+    verbs: [get, list, create, patch, delete]
+  - apiGroups: ['']
+    resources: [secrets, configmaps]
+    verbs: [get, create, patch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [paseo-workspaces-operator]
+    verbs: [get]
+---
+{{- end }}
+{{- if .Values.quota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: workspace-capacity
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+spec:
+  hard: {{- toYaml .Values.quota.hard | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: workspace-daemon-ingress
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: workspaces.paseo.sh/uid
+        operator: Exists
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              workspaces.paseo.sh/access: main
+      ports:
+        - protocol: TCP
+          port: 6767
+---
+{{- end }}
+{{- if .Values.workspaceServiceAccount.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: {{ .Release.Namespace }}
+automountServiceAccountToken: false
+{{- with .Values.workspacePullSecret }}
+imagePullSecrets:
+  - name: {{ . }}
+{{- end }}
+{{- end }}
