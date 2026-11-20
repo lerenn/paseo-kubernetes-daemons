@@ -65,6 +65,21 @@ func TestReconcile(t *testing.T) {
 	if status["phase"] != "Ready" || status["endpoint"] != "pw-demo.test.svc:6767" {
 		t.Fatalf("wrong status: %v", status)
 	}
+	pod.Status.Conditions = nil
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "daemon", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}}}}
+	if err := c.Status().Update(ctx, pod); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	status = got.Object["status"].(map[string]interface{})
+	if status["phase"] != "Failed" || status["message"] != "ImagePullBackOff" {
+		t.Fatalf("wrong failure status: %v", status)
+	}
 	// A replacement pod is rebuilt from the same CR, retaining the same PVC.
 	if err := c.Delete(ctx, pod); err != nil {
 		t.Fatal(err)
@@ -89,6 +104,44 @@ func TestRefuseForeignResource(t *testing.T) {
 	r := &Reconciler{Client: c, Namespace: "test"}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "demo", Namespace: "test"}}); err == nil {
 		t.Fatal("adopted foreign resource")
+	}
+}
+
+func TestGatewayMountsAreSharedWithDocker(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	w := object()
+	w.SetName("gateway")
+	w.SetNamespace("test")
+	w.SetUID("uid")
+	w.Object["spec"] = map[string]interface{}{"image": "test", "storage": "4Gi", "gateway": true, "ephemeral": true, "workingDirectory": "/workspace/repository", "docker": map[string]interface{}{"enabled": true}, "bootstrap": map[string]interface{}{"secretName": "profile", "configMapName": "profile", "envSecretName": "profile-env"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(w).WithObjects(w).Build()
+	r := &Reconciler{Client: c, Namespace: "test"}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "test"}}); err != nil {
+		t.Fatal(err)
+	}
+	pod := &corev1.Pod{}
+	if err := c.Get(ctx, types.NamespacedName{Name: "pw-gateway", Namespace: "test"}, pod); err != nil {
+		t.Fatal(err)
+	}
+	root := GatewayRoot("gateway")
+	if pod.Spec.Containers[0].WorkingDir != root+"/repository" {
+		t.Fatal("daemon cwd does not use the routable mount")
+	}
+	for _, container := range append(pod.Spec.Containers, pod.Spec.InitContainers...) {
+		found := false
+		for _, mount := range container.VolumeMounts {
+			if mount.Name == "workspace" && mount.MountPath == root {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s has no shared gateway mount", container.Name)
+		}
+	}
+	if !slices.Contains(pod.Spec.InitContainers[0].Command, root) {
+		t.Fatal("bootstrap does not trust the actual project path")
 	}
 }
 

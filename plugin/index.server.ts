@@ -12,6 +12,7 @@ import { create, list, release, defaults } from "./server/backend.js";
 import { workspaceSettings, settingsSchema } from "./shared/settings.js";
 import { inspect } from "./server/kubernetes.js";
 import { discover, sync } from "./server/credentials.js";
+import { captureControls } from "./server/provider-profile.js";
 import {
   inspectSetup,
   discoverSources,
@@ -44,7 +45,9 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(syncCredentials, async (selection, { paseo }) => {
     const directory = await paseo.hosts.list();
-    return sync(await configuration(), selection, directory.self.serverId);
+    const snapshot = await paseo.providers.waitForReady({cwd: selection.repositoryPath || undefined});
+    const controls = await captureControls(paseo,snapshot,selection.providers,selection.repositoryPath || process.cwd());
+    return sync(await configuration(), selection, directory.self.serverId, undefined, undefined, snapshot,controls);
   });
   let active: PaseoApi | undefined;
   let busy = false;

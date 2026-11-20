@@ -67,6 +67,14 @@ class BootstrapTest(unittest.TestCase):
         with patch.object(bootstrap, 'checkout') as checkout:
             with self.assertRaises(ValueError): self.prepare()
             checkout.assert_not_called()
+    def test_gateway_alias_is_trusted_once(self):
+        repo = self.workspace / 'repository'; repo.mkdir(parents=True)
+        self.settings = {'repository': {'url':'https://github.com/example/repo.git'}, 'trustRepository':True}; self.save()
+        alias='/__paseo_kubernetes/gw-test/workspace'
+        with patch.object(bootstrap, 'checkout', return_value=repo):
+            bootstrap.prepare(self.workspace,self.secrets,self.config,'profile',alias)
+        config=tomllib.loads((self.workspace / '.codex/config.toml').read_text())
+        self.assertEqual(config['projects'][alias+'/repository']['trust_level'],'trusted')
     def test_serializer_preserves_nested_codex_configuration(self):
         data=tomllib.loads('model="test"\n[features]\nweb_search=true\n[[example]]\nname="a"\n')
         self.assertEqual(tomllib.loads(bootstrap.dump_toml(data)), data)

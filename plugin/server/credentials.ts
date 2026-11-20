@@ -6,6 +6,8 @@ import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { parse, stringify } from "smol-toml";
 import type { z } from "zod";
+import type { PaseoProviderSnapshotResult } from "@getpaseo/client";
+import { providerProfile } from "./provider-profile.js";
 import { syncSelection } from "../shared/contracts.js";
 import { scopeOf, type Configuration } from "../shared/settings.js";
 import { applyOwned, connection, type Kubectl } from "./kubernetes.js";
@@ -290,6 +292,7 @@ export async function bundle(
     environment: vars,
     bootstrap: {
       repository: s.url ? { url: s.url, revision: selection.revision } : null,
+      providers: selection.providers,
       mcps: selection.mcps,
       trustRepository: selection.trustRepository,
     },
@@ -301,6 +304,8 @@ export async function sync(
   serverId: string,
   run: Kubectl = connection(c),
   o: SourceOptions = {},
+  snapshot?: PaseoProviderSnapshotResult,
+  controls: Record<string, unknown> = {},
 ) {
   if (!c.context) {
     const current = await run(["config", "current-context"]).catch(() => "");
@@ -310,12 +315,13 @@ export async function sync(
       );
   }
   const data = await bundle(selection, o);
+  const discovery = snapshot ? providerProfile(snapshot, selection.providers) : [];
   const owner = createHash("sha256")
     .update(JSON.stringify([serverId, scopeOf(c)]))
     .digest("hex")
     .slice(0, 16);
   const version = createHash("sha256")
-    .update(JSON.stringify(data))
+    .update(JSON.stringify({data, discovery, controls}))
     .digest("hex")
     .slice(0, 20);
   const name = `pw-profile-${owner}-${version}`;
@@ -352,7 +358,7 @@ export async function sync(
     kind: "ConfigMap",
     metadata: meta,
     immutable: true,
-    data: { "bootstrap.json": JSON.stringify(data.bootstrap) },
+    data: { "bootstrap.json": JSON.stringify({...data.bootstrap, providerSnapshot: discovery, providerControls: controls}) },
   };
   if (
     Buffer.byteLength(JSON.stringify(secret)) +
@@ -370,5 +376,6 @@ export async function sync(
     providers: selection.providers,
     mcps: selection.mcps,
     repository: data.bootstrap.repository?.url ?? "",
+    gatewayReady: true,
   };
 }

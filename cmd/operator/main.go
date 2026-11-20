@@ -3,17 +3,23 @@ package main
 import (
 	"flag"
 	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
+	"github.com/lerenn/paseo-kubernetes-workspaces/internal/gateway"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"strings"
 )
 
 func main() {
-	var namespace string
+	var namespace, gatewayAddress, extraHosts, pullSecret string
 	flag.StringVar(&namespace, "namespace", "default", "Namespace managed by this operator")
+	flag.StringVar(&gatewayAddress, "gateway-listen", "", "Opt-in gateway listen address; empty disables it")
+	flag.StringVar(&extraHosts, "gateway-hostnames", "", "Additional comma-separated DNS names accepted by the gateway")
+	flag.StringVar(&pullSecret, "workspace-pull-secret", "", "Image pull Secret used by workspace pods")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -25,9 +31,26 @@ func main() {
 		ctrl.Log.Error(err, "manager")
 		os.Exit(1)
 	}
-	if err = (&controller.Reconciler{Client: manager.GetClient(), Namespace: namespace}).Setup(manager); err != nil {
+	if err = (&controller.Reconciler{Client: manager.GetClient(), Namespace: namespace, ImagePullSecret: pullSecret}).Setup(manager); err != nil {
 		ctrl.Log.Error(err, "setup")
 		os.Exit(1)
+	}
+	if gatewayAddress != "" {
+		direct, e := client.New(manager.GetConfig(), client.Options{Scheme: scheme})
+		if e != nil {
+			ctrl.Log.Error(e, "gateway Kubernetes client")
+			os.Exit(1)
+		}
+		hosts := []string{"127.0.0.1", "localhost", "paseo-workspaces-gateway", "paseo-workspaces-gateway." + namespace + ".svc", "paseo-workspaces-gateway." + namespace + ".svc.cluster.local"}
+		for _, host := range strings.Split(extraHosts, ",") {
+			if strings.TrimSpace(host) != "" {
+				hosts = append(hosts, strings.TrimSpace(host))
+			}
+		}
+		if err = manager.Add(&gateway.Runnable{Client: direct, Namespace: namespace, Address: gatewayAddress, Hostname: "Kubernetes", AllowedHosts: hosts}); err != nil {
+			ctrl.Log.Error(err, "gateway setup")
+			os.Exit(1)
+		}
 	}
 	if err = manager.Start(ctrl.SetupSignalHandler()); err != nil {
 		ctrl.Log.Error(err, "run")

@@ -45,6 +45,9 @@ spec:
                 image:
                   type: string
                   minLength: 1
+                gateway:
+                  type: boolean
+                  default: false
                 docker:
                   type: object
                   properties:
@@ -107,4 +110,5 @@ spec:
                 message: {type: string}
                 phase: {type: string}
                 endpoint: {type: string}
+                podUID: {type: string}
                 observedGeneration: {type: integer, format: int64}

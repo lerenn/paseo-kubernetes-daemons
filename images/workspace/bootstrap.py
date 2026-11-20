@@ -85,7 +85,7 @@ def checkout(root, repo):
         write_private(marker, json.dumps({'url': url}))
     return destination
 
-def prepare(root, secret_dir, config_dir, profile):
+def prepare(root, secret_dir, config_dir, profile, alias_root=None):
     root = Path(root)
     if root.is_symlink(): raise ValueError('unsafe workspace root')
     root.mkdir(parents=True, exist_ok=True)
@@ -106,6 +106,11 @@ def prepare(root, secret_dir, config_dir, profile):
     if repo:
         destination = checkout(root, repo)
         settings.setdefault('projects', {})[str(destination)] = {'trust_level': 'trusted'}
+        if alias_root:
+            import re
+            if not re.fullmatch(r'/__paseo_kubernetes/[a-z0-9]([-a-z0-9]*[a-z0-9])?/workspace', alias_root):
+                raise ValueError('invalid workspace alias')
+            settings['projects'][alias_root + '/repository'] = {'trust_level': 'trusted'}
         project = destination / '.codex'
         if project.is_symlink(): raise ValueError('unsafe project configuration directory')
         project_config = project / 'config.toml'
@@ -140,9 +145,10 @@ def main():
     parser.add_argument('--secrets', default='/var/run/paseo/credentials')
     parser.add_argument('--config', default='/var/run/paseo/config')
     parser.add_argument('--profile', required=True)
+    parser.add_argument('--alias-root')
     args = parser.parse_args()
     try:
-        prepare(args.workspace, args.secrets, args.config, args.profile)
+        prepare(args.workspace, args.secrets, args.config, args.profile, args.alias_root)
     except Exception:
         # Upstream parser/Git exceptions may embed secrets; never print their raw text.
         print('Workspace bootstrap failed. Check the selected snapshot, repository access and image dependencies.', file=sys.stderr)

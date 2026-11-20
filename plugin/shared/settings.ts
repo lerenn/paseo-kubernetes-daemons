@@ -11,6 +11,7 @@ export const bundleSchema = z.object({
   providers: z.array(z.string()),
   mcps: z.array(z.string()),
   repository: z.string(),
+  gatewayReady: z.boolean().default(false),
 });
 export const settingsSchema = z.object({
   context: z.string().max(200).default(""),

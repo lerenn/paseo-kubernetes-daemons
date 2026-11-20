@@ -8,8 +8,8 @@
     "test": "tsx --test server/*.test.ts"
   },
   "devDependencies": {
-    "@getpaseo/client": "0.15.3",
-    "@getpaseo/plugin": "0.15.3",
+    "@getpaseo/client": "0.16.2",
+    "@getpaseo/plugin": "0.16.2",
     "@types/node": "^22.0.0",
     "@types/react": "19.1.0",
     "react": "19.1.0",
