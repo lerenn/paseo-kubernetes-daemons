@@ -44,7 +44,8 @@ export default function contribute(server: PluginServerContext) {
   );
   server.handle(syncCredentials, async (selection, { paseo }) => {
     const directory = await paseo.hosts.list();
-    return sync(await configuration(), selection, directory.self.serverId);
+    const snapshot = await paseo.providers.waitForReady({cwd: selection.repositoryPath || undefined});
+    return sync(await configuration(), selection, directory.self.serverId, undefined, undefined, snapshot);
   });
   let active: PaseoApi | undefined;
   let busy = false;

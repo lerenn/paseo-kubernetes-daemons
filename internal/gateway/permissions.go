@@ -7,6 +7,7 @@ import "errors"
 var operationPermissions = map[string][]string{
 	"workspace.create.request":                {"workspace.manage"},
 	"project.list.request":                    {"workspace.read"},
+	"get_providers_snapshot_request":          {"daemon.read", "hub.execute"},
 	"fetch_workspaces_request":                {"workspace.read", "hub.execute"},
 	"fetch_agents_request":                    {"workspace.read", "hub.execute"},
 	"agent.create.request":                    {"workspace.write", "hub.execute"},
