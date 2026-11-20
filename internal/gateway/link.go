@@ -96,7 +96,7 @@ func (l *Link) Accept(routeID string, frame Frame) (*ScopedIdentity, error) {
 	if message.Type != "session" || message.Message.Type == "" {
 		return nil, errors.New("invalid host channel session")
 	}
-	if err := AuthorizeOperation(channel.identity.Permissions, message.Message.Type); err != nil {
+	if err := AuthorizeOperation(channel.identity.Permissions, message.Message.Type); err != nil && message.Message.Type != "subscription.release.request" {
 		return nil, err
 	}
 	return cloneIdentity(channel.identity), nil
@@ -106,6 +106,23 @@ func cloneIdentity(in *ScopedIdentity) *ScopedIdentity {
 	out := *in
 	out.Permissions = append([]string(nil), in.Permissions...)
 	return &out
+}
+
+func (l *Link) Has(route string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return !l.closed && l.channels[route] != nil
+}
+func (l *Link) ScopeRoutes(scope string) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var ids []string
+	for id, ch := range l.channels {
+		if ch.scope == scope {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func (l *Link) CloseRoute(routeID string) {

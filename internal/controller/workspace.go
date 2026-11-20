@@ -20,6 +20,8 @@ import (
 
 var GVK = schema.GroupVersionKind{Group: "workspaces.paseo.sh", Version: "v1alpha1", Kind: "PaseoWorkspace"}
 
+const GatewayAuthSecret = "paseo-workspaces-gateway-auth"
+
 type Bootstrap struct {
 	SecretName    string `json:"secretName"`
 	ConfigMapName string `json:"configMapName"`
@@ -29,6 +31,7 @@ type Docker struct {
 	Enabled bool `json:"enabled"`
 }
 type Spec struct {
+	Gateway          bool                        `json:"gateway,omitempty"`
 	Docker           *Docker                     `json:"docker,omitempty"`
 	Bootstrap        *Bootstrap                  `json:"bootstrap,omitempty"`
 	Ephemeral        bool                        `json:"ephemeral,omitempty"`
@@ -42,7 +45,8 @@ type Spec struct {
 }
 type Reconciler struct {
 	client.Client
-	Namespace string
+	Namespace       string
+	ImagePullSecret string
 }
 
 func object() *unstructured.Unstructured {
@@ -104,6 +108,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		container.EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: s.SecretName}}}}
 	}
 	pod := &corev1.Pod{ObjectMeta: meta(), Spec: corev1.PodSpec{AutomountServiceAccountToken: &no, SecurityContext: &corev1.PodSecurityContext{RunAsUser: &uid, RunAsGroup: &uid, FSGroup: &uid, RunAsNonRoot: boolPtr(true)}, Containers: []corev1.Container{container}, Volumes: []corev1.Volume{{Name: "workspace", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}}}}}
+	if r.ImagePullSecret != "" {
+		pod.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: r.ImagePullSecret}}
+	}
 	desiredObjects := []client.Object{service, pod}
 	if s.Ephemeral {
 		pod.Spec.Volumes[0].VolumeSource = corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: &size}}
@@ -148,6 +155,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			VolumeMounts:   []corev1.VolumeMount{socket, {Name: "docker-data", MountPath: "/var/lib/docker"}, {Name: "workspace", MountPath: "/workspace"}},
 			ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"docker", "--host=unix:///var/run/docker/docker.sock", "info"}}}, PeriodSeconds: 5},
 		})
+	}
+	if s.Gateway {
+		alias := GatewayRoot(w.GetName())
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{Name: "PASEO_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: GatewayAuthSecret}, Key: "password"}}}, corev1.EnvVar{Name: "PASEO_HOSTNAMES", Value: name + "." + req.Namespace + ".svc," + name + "." + req.Namespace + ".svc.cluster.local," + name})
+		pod.Spec.Containers[0].WorkingDir = alias + workingDir[len("/workspace"):]
+		for i := range pod.Spec.Containers {
+			pod.Spec.Containers[i].VolumeMounts = append(pod.Spec.Containers[i].VolumeMounts, corev1.VolumeMount{Name: "workspace", MountPath: alias})
+		}
+		for i := range pod.Spec.Containers[0].Env {
+			if pod.Spec.Containers[0].Env[i].Name == "PASEO_HOME" {
+				pod.Spec.Containers[0].Env[i].Value = alias + "/.paseo"
+			}
+		}
+		for i := range pod.Spec.InitContainers {
+			pod.Spec.InitContainers[i].VolumeMounts = append(pod.Spec.InitContainers[i].VolumeMounts, corev1.VolumeMount{Name: "workspace", MountPath: alias})
+			pod.Spec.InitContainers[i].Command = append(pod.Spec.InitContainers[i].Command, "--alias-root", alias)
+		}
 	}
 	for _, desired := range desiredObjects {
 		existing := desired.DeepCopyObject().(client.Object)
@@ -214,5 +238,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 }
 func boolPtr(v bool) *bool { return &v }
+
+// GatewayRoot is mounted at the same absolute path in every container in a
+// workspace pod, including Docker, so host-visible paths remain valid there.
+func GatewayRoot(name string) string { return "/__paseo_kubernetes/" + name + "/workspace" }
 
 func quantityPtr(value string) *resource.Quantity { q := resource.MustParse(value); return &q }

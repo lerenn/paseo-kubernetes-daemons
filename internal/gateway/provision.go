@@ -25,11 +25,13 @@ const optionsAnnotation = "workspaces.paseo.sh/gateway-options"
 // Provisioner creates one environment per idempotency key. The profile name
 // must come from trusted gateway configuration, never from an untrusted client.
 type Provisioner struct {
-	Client    client.Client
-	Namespace string
-	Image     string
-	Profile   string
-	Docker    bool
+	Client         client.Client
+	Namespace      string
+	Image          string
+	Profile        string
+	Docker         bool
+	Persistent     bool
+	MainConnection string
 }
 
 // Create is safe to retry after a timeout or gateway restart. An existing
@@ -173,8 +175,13 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 	obj.SetName(name)
 	obj.SetNamespace(p.Namespace)
 	obj.SetAnnotations(map[string]string{requestAnnotation: digest, optionsAnnotation: optionsDigest})
+	storage := "4Gi"
+	if p.Persistent {
+		storage = "10Gi"
+	}
 	obj.Object["spec"] = map[string]interface{}{
-		"image": p.Image, "ephemeral": true, "storage": "4Gi", "workingDirectory": workingDirectory,
+		"gateway": true,
+		"image":   p.Image, "ephemeral": !p.Persistent, "storage": storage, "workingDirectory": workingDirectory,
 		"docker":    map[string]interface{}{"enabled": p.Docker},
 		"bootstrap": map[string]interface{}{"secretName": p.Profile, "configMapName": p.Profile, "envSecretName": p.Profile + "-env"},
 		"resources": map[string]interface{}{"requests": map[string]interface{}{"cpu": "250m", "memory": "512Mi", "ephemeral-storage": "1Gi"}, "limits": map[string]interface{}{"cpu": "2", "memory": "4Gi", "ephemeral-storage": "4Gi"}},
@@ -197,7 +204,8 @@ func existing(obj *unstructured.Unstructured, digest, optionsDigest string, p *P
 	image, _, _ := unstructured.NestedString(obj.Object, "spec", "image")
 	profile, _, _ := unstructured.NestedString(obj.Object, "spec", "bootstrap", "secretName")
 	docker, _, _ := unstructured.NestedBool(obj.Object, "spec", "docker", "enabled")
-	if obj.GetAnnotations()[requestAnnotation] != digest || obj.GetAnnotations()[optionsAnnotation] != optionsDigest || image != p.Image || profile != p.Profile || docker != p.Docker || obj.GetDeletionTimestamp() != nil {
+	ephemeral, _, _ := unstructured.NestedBool(obj.Object, "spec", "ephemeral")
+	if obj.GetAnnotations()[requestAnnotation] != digest || obj.GetAnnotations()[optionsAnnotation] != optionsDigest || image != p.Image || profile != p.Profile || docker != p.Docker || ephemeral == p.Persistent || obj.GetDeletionTimestamp() != nil {
 		return nil, errors.New("workspace request conflicts with an existing environment")
 	}
 	return obj, nil

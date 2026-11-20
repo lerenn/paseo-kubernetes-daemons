@@ -107,6 +107,44 @@ func TestRefuseForeignResource(t *testing.T) {
 	}
 }
 
+func TestGatewayMountsAreSharedWithDocker(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	w := object()
+	w.SetName("gateway")
+	w.SetNamespace("test")
+	w.SetUID("uid")
+	w.Object["spec"] = map[string]interface{}{"image": "test", "storage": "4Gi", "gateway": true, "ephemeral": true, "workingDirectory": "/workspace/repository", "docker": map[string]interface{}{"enabled": true}, "bootstrap": map[string]interface{}{"secretName": "profile", "configMapName": "profile", "envSecretName": "profile-env"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(w).WithObjects(w).Build()
+	r := &Reconciler{Client: c, Namespace: "test"}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "test"}}); err != nil {
+		t.Fatal(err)
+	}
+	pod := &corev1.Pod{}
+	if err := c.Get(ctx, types.NamespacedName{Name: "pw-gateway", Namespace: "test"}, pod); err != nil {
+		t.Fatal(err)
+	}
+	root := GatewayRoot("gateway")
+	if pod.Spec.Containers[0].WorkingDir != root+"/repository" {
+		t.Fatal("daemon cwd does not use the routable mount")
+	}
+	for _, container := range append(pod.Spec.Containers, pod.Spec.InitContainers...) {
+		found := false
+		for _, mount := range container.VolumeMounts {
+			if mount.Name == "workspace" && mount.MountPath == root {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s has no shared gateway mount", container.Name)
+		}
+	}
+	if !slices.Contains(pod.Spec.InitContainers[0].Command, root) {
+		t.Fatal("bootstrap does not trust the actual project path")
+	}
+}
+
 func TestEphemeralBootstrap(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()

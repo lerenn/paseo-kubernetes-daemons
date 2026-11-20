@@ -15,7 +15,8 @@ type HelloIdentity struct {
 
 type ScopedIdentity struct {
 	HelloIdentity
-	Permissions []string
+	Permissions  []string
+	Capabilities map[string]interface{}
 }
 
 // AuthenticateHello validates the gateway-facing Paseo handshake. The caller
@@ -27,14 +28,15 @@ func AuthenticateHello(frame []byte, password string) (HelloIdentity, error) {
 		return HelloIdentity{}, errors.New("gateway password is not configured")
 	}
 	var hello struct {
-		Type        string          `json:"type"`
-		ClientID    string          `json:"clientId"`
-		ClientType  string          `json:"clientType"`
-		Protocol    int             `json:"protocolVersion"`
-		Routed      bool            `json:"routed"`
-		Producer    json.RawMessage `json:"producer"`
-		Permissions json.RawMessage `json:"sessionPermissions"`
-		Auth        struct {
+		Type         string                 `json:"type"`
+		ClientID     string                 `json:"clientId"`
+		ClientType   string                 `json:"clientType"`
+		Protocol     int                    `json:"protocolVersion"`
+		Routed       bool                   `json:"routed"`
+		Producer     json.RawMessage        `json:"producer"`
+		Permissions  json.RawMessage        `json:"sessionPermissions"`
+		Capabilities map[string]interface{} `json:"capabilities"`
+		Auth         struct {
 			Kind     string `json:"kind"`
 			Password string `json:"password"`
 		} `json:"auth"`
@@ -68,11 +70,12 @@ func AuthenticateHello(frame []byte, password string) (HelloIdentity, error) {
 // with that connection's authority; the inner hello provides no authentication.
 func AdmitLinkedHello(frame []byte, parentPermissions []string) (ScopedIdentity, error) {
 	var hello struct {
-		Type        string          `json:"type"`
-		ClientID    string          `json:"clientId"`
-		ClientType  string          `json:"clientType"`
-		Protocol    int             `json:"protocolVersion"`
-		Permissions json.RawMessage `json:"sessionPermissions"`
+		Capabilities map[string]interface{} `json:"capabilities"`
+		Type         string                 `json:"type"`
+		ClientID     string                 `json:"clientId"`
+		ClientType   string                 `json:"clientType"`
+		Protocol     int                    `json:"protocolVersion"`
+		Permissions  json.RawMessage        `json:"sessionPermissions"`
 	}
 	if len(frame) > 64*1024 || json.Unmarshal(frame, &hello) != nil || hello.Type != "hello" || hello.Protocol < 1 {
 		return ScopedIdentity{}, errors.New("invalid linked hello")
@@ -102,5 +105,5 @@ func AdmitLinkedHello(frame []byte, parentPermissions []string) (ScopedIdentity,
 			}
 		}
 	}
-	return ScopedIdentity{HelloIdentity: HelloIdentity{ClientID: hello.ClientID, ClientType: hello.ClientType}, Permissions: permissions}, nil
+	return ScopedIdentity{HelloIdentity: HelloIdentity{ClientID: hello.ClientID, ClientType: hello.ClientType}, Permissions: permissions, Capabilities: hello.Capabilities}, nil
 }

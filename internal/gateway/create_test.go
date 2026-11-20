@@ -60,7 +60,7 @@ func TestCreatorProvisionsAndForwardsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Backend == nil || backend.closed || len(result.Events) != 1 || !strings.Contains(string(backend.sent), `"cwd":"/workspace/repository"`) || !strings.Contains(string(result.Response.Data), "/__paseo_kubernetes/") {
+	if result.Backend == nil || backend.closed || len(result.Events) != 1 || !strings.Contains(string(backend.sent), controller.GatewayRoot(result.Environment)+"/repository") || !strings.Contains(string(result.Response.Data), "/__paseo_kubernetes/") {
 		t.Fatalf("bad creation result %+v", result)
 	}
 	if endpoint, err := p.Resolve(ctx, "agent", "a1"); err != nil || !strings.Contains(endpoint, result.Environment) {

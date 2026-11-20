@@ -10,6 +10,10 @@ import (
 // PrepareCreate translates a creation request for a project already mapped to
 // a synced profile. It never guesses a repository from a client-provided path.
 func PrepareCreate(frame []byte, projectID, projectRoot string) ([]byte, error) {
+	return prepareCreateAt(frame, projectID, projectRoot, "/workspace/repository")
+}
+
+func prepareCreateAt(frame []byte, projectID, projectRoot, podDirectory string) ([]byte, error) {
 	if projectID == "" || projectRoot == "" {
 		return nil, errors.New("approved project mapping is required")
 	}
@@ -51,7 +55,7 @@ func PrepareCreate(frame []byte, projectID, projectRoot string) ([]byte, error) 
 	// The pod has its own project registry; the virtual host's project ID must
 	// not be passed to it. Preserve worktree branch/ref and all other fields.
 	delete(source, "projectId")
-	podRoot, _ := json.Marshal("/workspace/repository")
+	podRoot, _ := json.Marshal(podDirectory)
 	if kind == "directory" {
 		source["path"] = podRoot
 	} else {
@@ -70,7 +74,7 @@ func PrepareCreate(frame []byte, projectID, projectRoot string) ([]byte, error) 
 		if json.Unmarshal(config["cwd"], &cwd) != nil || path.Clean(cwd) != cwd || (cwd != projectRoot && !strings.HasPrefix(cwd, projectRoot+"/")) {
 			return nil, errors.New("initial agent directory is outside the approved project")
 		}
-		mapped, _ := json.Marshal("/workspace/repository" + strings.TrimPrefix(cwd, projectRoot))
+		mapped, _ := json.Marshal(podDirectory + strings.TrimPrefix(cwd, projectRoot))
 		config["cwd"] = mapped
 		configRaw, err := json.Marshal(config)
 		if err != nil {

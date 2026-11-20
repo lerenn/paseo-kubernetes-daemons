@@ -305,6 +305,7 @@ export async function sync(
   run: Kubectl = connection(c),
   o: SourceOptions = {},
   snapshot?: PaseoProviderSnapshotResult,
+  controls: Record<string, unknown> = {},
 ) {
   if (!c.context) {
     const current = await run(["config", "current-context"]).catch(() => "");
@@ -320,7 +321,7 @@ export async function sync(
     .digest("hex")
     .slice(0, 16);
   const version = createHash("sha256")
-    .update(JSON.stringify({data, discovery}))
+    .update(JSON.stringify({data, discovery, controls}))
     .digest("hex")
     .slice(0, 20);
   const name = `pw-profile-${owner}-${version}`;
@@ -357,7 +358,7 @@ export async function sync(
     kind: "ConfigMap",
     metadata: meta,
     immutable: true,
-    data: { "bootstrap.json": JSON.stringify({...data.bootstrap, providerSnapshot: discovery}) },
+    data: { "bootstrap.json": JSON.stringify({...data.bootstrap, providerSnapshot: discovery, providerControls: controls}) },
   };
   if (
     Buffer.byteLength(JSON.stringify(secret)) +

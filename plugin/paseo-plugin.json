@@ -3,7 +3,7 @@
   "name": "Kubernetes Workspaces",
   "description": "Provision isolated workspace daemons through the Paseo Kubernetes operator",
   "requirements": {
-    "paseo": ">=0.15.3"
+    "paseo": ">=0.16.2"
   },
   "icon": "assets/icon.png",
   "build": [

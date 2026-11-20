@@ -40,6 +40,12 @@ func virtualField(object wireObject, key, environment string) error {
 	if json.Unmarshal(raw, &real) != nil {
 		return errors.New("invalid response path")
 	}
+	if env, _, err := ParseVirtualPath(real); err == nil {
+		if env != environment {
+			return errors.New("response path belongs to another workspace")
+		}
+		return nil
+	}
 	virtual, err := VirtualizePath(environment, real)
 	if err != nil {
 		return err

@@ -16,6 +16,8 @@ type Mux struct {
 	Hostname string
 	Version  string
 	Dispatch func(context.Context, string, ScopedIdentity, Frame) ([]Frame, error)
+	OnClose  func(string)
+	Features map[string]bool
 }
 
 func textFrame(value interface{}) (Frame, error) {
@@ -39,6 +41,9 @@ func (m *Mux) wrap(route string, frame Frame) (Frame, error) {
 
 func (m *Mux) closeRoute(route, code, reason string) (Frame, error) {
 	m.Link.CloseRoute(route)
+	if m.OnClose != nil {
+		m.OnClose(route)
+	}
 	return sessionFrame(map[string]interface{}{"type": "hosts.route.closed", "payload": map[string]interface{}{"subscriptionId": route, "code": code, "message": reason}})
 }
 
@@ -97,8 +102,17 @@ func (m *Mux) Handle(ctx context.Context, frame Frame) ([]Frame, error) {
 	case "hosts.route.close.request":
 		if msg.RouteID != "" {
 			m.Link.CloseRoute(msg.RouteID)
+			if m.OnClose != nil {
+				m.OnClose(msg.RouteID)
+			}
 		} else if msg.ScopeID != "" {
+			ids := m.Link.ScopeRoutes(msg.ScopeID)
 			m.Link.CloseScope(msg.ScopeID)
+			if m.OnClose != nil {
+				for _, id := range ids {
+					m.OnClose(id)
+				}
+			}
 		} else {
 			return nil, errors.New("missing route or scope")
 		}
@@ -121,7 +135,11 @@ func (m *Mux) child(ctx context.Context, route string, frame Frame) ([]Frame, er
 		_ = json.Unmarshal(frame.Data, &marker)
 	}
 	if marker.Type == "hello" {
-		info, err := sessionFrame(map[string]interface{}{"type": "status", "payload": map[string]interface{}{"status": "server_info", "protocolVersion": 1, "serverId": m.ServerID, "hostname": m.Hostname, "version": m.Version, "sourceId": "gateway:" + identity.ClientID, "permissions": identity.Permissions, "features": map[string]bool{"connectedHosts": true, "hostMultiplexing": true}}})
+		features := m.Features
+		if features == nil {
+			features = map[string]bool{"connectedHosts": true, "hostMultiplexing": true}
+		}
+		info, err := sessionFrame(map[string]interface{}{"type": "status", "payload": map[string]interface{}{"status": "server_info", "protocolVersion": 1, "serverId": m.ServerID, "hostname": m.Hostname, "version": m.Version, "sourceId": "gateway:" + identity.ClientID, "permissions": identity.Permissions, "features": features}})
 		if err != nil {
 			return nil, err
 		}

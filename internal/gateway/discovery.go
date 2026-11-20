@@ -25,6 +25,7 @@ type Project struct {
 type Discovery struct {
 	Project   *Project
 	Providers []json.RawMessage
+	Controls  map[string][]wireObject
 }
 
 // Discover reads non-secret profile metadata for the empty-host picker. The
@@ -44,13 +45,14 @@ func (p *Provisioner) Discover(ctx context.Context) (Discovery, error) {
 		Repository *struct {
 			URL string `json:"url"`
 		} `json:"repository"`
-		Trust     bool              `json:"trustRepository"`
-		Providers []json.RawMessage `json:"providerSnapshot"`
+		Trust     bool                    `json:"trustRepository"`
+		Providers []json.RawMessage       `json:"providerSnapshot"`
+		Controls  map[string][]wireObject `json:"providerControls"`
 	}
 	if err := json.Unmarshal([]byte(config.Data["bootstrap.json"]), &data); err != nil {
 		return Discovery{}, errors.New("profile discovery metadata is invalid")
 	}
-	result := Discovery{Providers: data.Providers}
+	result := Discovery{Providers: data.Providers, Controls: data.Controls}
 	if data.Repository == nil {
 		return result, nil
 	}

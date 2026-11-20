@@ -45,6 +45,9 @@ spec:
                 image:
                   type: string
                   minLength: 1
+                gateway:
+                  type: boolean
+                  default: false
                 docker:
                   type: object
                   properties:

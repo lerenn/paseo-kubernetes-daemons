@@ -50,6 +50,10 @@ var frameCodec = websocket.Codec{
 // DialBackend authenticates to a pod daemon and waits for its server identity.
 // endpoint must be supplied by the trusted Kubernetes routing table.
 func DialBackend(ctx context.Context, endpoint, clientID, password string) (*Backend, error) {
+	return DialScopedBackend(ctx, endpoint, clientID, password, nil, nil)
+}
+
+func DialScopedBackend(ctx context.Context, endpoint, clientID, password string, permissions []string, capabilities map[string]interface{}) (*Backend, error) {
 	if clientID == "" || strings.ContainsAny(endpoint, "/?#@") {
 		return nil, errors.New("invalid backend endpoint or client identity")
 	}
@@ -73,6 +77,12 @@ func DialBackend(ctx context.Context, endpoint, clientID, password string) (*Bac
 	}
 	_ = conn.SetDeadline(deadline)
 	hello := map[string]interface{}{"type": "hello", "clientId": clientID, "clientType": "cli", "protocolVersion": 1}
+	if permissions != nil {
+		hello["sessionPermissions"] = permissions
+	}
+	if capabilities != nil {
+		hello["capabilities"] = capabilities
+	}
 	if password != "" {
 		hello["auth"] = map[string]string{"kind": "password", "password": password}
 	}

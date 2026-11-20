@@ -90,6 +90,10 @@ func (c *Creator) Create(ctx context.Context, input Frame) (result CreatedWorksp
 		return result, err
 	}
 	result.Environment = resource.GetName()
+	translated, err = prepareCreateAt(input.Data, discovery.Project.ID, discovery.Project.Root, controller.GatewayRoot(result.Environment)+"/repository")
+	if err != nil {
+		return result, err
+	}
 	var endpoint string
 	if c.Wait != nil {
 		endpoint, err = c.Wait(ctx, result.Environment)
