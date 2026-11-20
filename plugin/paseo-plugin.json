@@ -1,1 +1,17 @@
-{"id":"kubernetes-workspaces","name":"Kubernetes Workspaces","description":"Provision isolated workspace daemons through the Paseo Kubernetes operator","requirements":{"paseo":">=0.15.3"}}
+{
+  "id": "kubernetes-workspaces",
+  "name": "Kubernetes Workspaces",
+  "description": "Provision isolated workspace daemons through the Paseo Kubernetes operator",
+  "requirements": {
+    "paseo": ">=0.15.3"
+  },
+  "icon": "assets/icon.png",
+  "build": [
+    [
+      "npm",
+      "ci",
+      "--omit=dev",
+      "--ignore-scripts"
+    ]
+  ]
+}

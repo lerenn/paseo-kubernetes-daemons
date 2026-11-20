@@ -9,6 +9,7 @@ jobs:
         with: {go-version-file: go.mod, cache: true}
       - run: go test ./...
       - run: go vet ./...
+      - run: python3 -m unittest discover -s images/workspace/tests -v
       - name: Test CRD admission and reconciliation against Kubernetes API
         run: |
           assets=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3 use 1.35.x -p path)
@@ -17,3 +18,9 @@ jobs:
         with: {node-version: '22', cache: npm, cache-dependency-path: plugin/package-lock.json}
       - run: npm ci && npm run typecheck && npm test
         working-directory: plugin
+  workspace-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t paseo-workspace:test images/workspace
+      - run: docker run --rm -i --network none --entrypoint python3 paseo-workspace:test - < images/workspace/tests/smoke.py

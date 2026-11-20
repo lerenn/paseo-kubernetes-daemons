@@ -22,32 +22,26 @@
 <pre><code>git clone https://github.com/lerenn/paseo-kubernetes-workspaces.git
 cd paseo-kubernetes-workspaces
 
-docker build -t your-registry/paseo-workspaces-operator:0.1.0 .
-docker build -t your-registry/paseo-workspace:0.16.2 images/workspace
-docker push your-registry/paseo-workspaces-operator:0.1.0
-docker push your-registry/paseo-workspace:0.16.2</code></pre>
-<p>The base workspace image contains Paseo and basic development utilities. Install your agent provider executables in a derived image and inject their credentials through a Kubernetes Secret.</p>
+docker build -t your-registry/paseo-workspaces-operator:0.2.0 .
+docker build -t your-registry/paseo-workspace:0.2.0 images/workspace
+docker push your-registry/paseo-workspaces-operator:0.2.0
+docker push your-registry/paseo-workspace:0.2.0</code></pre>
+<p>The workspace image contains Paseo, Codex and the bootstrap helper. Install your agent provider executables in a derived image and inject their credentials through a Kubernetes Secret.</p>
 <h2>Deploy the operator</h2><p>Set the operator image in <code>config/operator.yaml</code> to the image you just pushed, then apply the manifests.</p>
 <pre><code>kubectl apply -f config/crd.yaml
 kubectl apply -f config/operator.yaml
 # Optional: cap aggregate workspace resources.
 kubectl apply -f config/quota.yaml</code></pre>
-<h2>Configure the main daemon</h2><p>Set these variables in the environment of the main daemon, then restart it. Shell exports in a separate terminal do not change an already running daemon.</p>
-<pre><code>PASEO_WORKSPACE_IMAGE=your-registry/paseo-workspace:0.16.2
-PASEO_WORKSPACE_NAMESPACE=paseo-workspaces
-PASEO_WORKSPACE_CLUSTER_ID=my-cluster
-# Optional: reverse registration for messages back to the main daemon.
-PASEO_MAIN_CONNECTION=main-daemon.paseo-workspaces.svc:6767
-# Optional: inject credentials into workspace pods.
-PASEO_WORKSPACE_SECRET=workspace-credentials</code></pre>
-<p>Apply <code>config/plugin-rbac.yaml</code> and bind its Role to the main daemon’s ServiceAccount. Alternatively, grant equivalent access through its kubeconfig. The main daemon needs permission to get, list, create, patch and delete <code>PaseoWorkspace</code> resources.</p>
-<p>Enable plugins in Paseo settings and install the companion from the cloned checkout:</p>
+<h2>Install the companion</h2><p>Apply <code>config/plugin-rbac.yaml</code> and bind its Role to the main daemon’s ServiceAccount. The main daemon needs kubectl, namespace access, and permission to create credential Secrets and ConfigMaps.</p>
 <pre><code>cd plugin
 npm ci
 npm run typecheck
-paseo plugin install &quot;$PWD&quot;</code></pre>
-<h2>Start your first workspace</h2><ol class="steps"><li>Open a new agent session so it receives the companion’s tools.</li><li>Call <code>kubernetes_workspace_create({ "name": "demo" })</code>.</li><li>Poll <code>kubernetes_workspace_list({})</code> until the environment’s <code>hostStatus</code> is <code>online</code>.</li><li>Use the returned <code>serverId</code> with Paseo’s cross-host tools. Create a Paseo workspace at <code>/workspace</code> on that daemon, then start agents there.</li><li>Export results, then call <code>kubernetes_workspace_release({ "name": "demo" })</code>.</li></ol>
-<div class="note warn"><strong>Release deletes the pod and PVC.</strong> Use a StorageClass with reclaim policy <code>Delete</code> if physical storage should also be removed.</div>
+paseo plugin install "$PWD"</code></pre>
+<h2>Set up from Paseo</h2><ol class="steps"><li>Open <strong>Kubernetes Workspaces</strong> from the top-left sidebar menu.</li><li>Save your Kubernetes context, namespace and bootstrap-enabled workspace image. Check the connection; the panel shows operator installation guidance if needed.</li><li>Discover provider credentials and Codex MCP definitions on the main host. Optionally enter a local repository path and approve it once for new pods.</li><li>Select a Codex subscription login or provider API keys, plus the MCPs to reuse. Click <strong>Sync to Kubernetes</strong> to create credential snapshots. Values stay out of the panel and workspace custom resource.</li><li>Create an environment. Bootstrap prepares writable Codex credentials, checks out the approved repository and configures project trust before the daemon starts.</li><li>Once online, choose <strong>Open workspace</strong> to work on that daemon.</li></ol>
+<p>Ephemeral storage is enabled by default. Turn it off for a PVC. The new workspace image includes Codex and the bootstrap helper; use a fresh image tag when upgrading from the initial implementation.</p>
+<div class="note">Credential snapshots are not a live authentication broker. Re-sync after main-host credentials change. OS-keychain credentials and coordinated OAuth refresh across pods are not supported. MCP OAuth file-cache export is a separate explicit opt-in.</div>
+<p>See <a href="https://github.com/lerenn/paseo-kubernetes-workspaces/blob/main/docs/setup.md">the full bootstrap and credential guide</a> for upgrade steps, RBAC bindings and supported credential sources.</p>
+<div class="note warn"><strong>Release deletes workspace storage.</strong> Export results first. For persistent volumes, physical deletion follows the StorageClass reclaim policy.</div>
 <h2>Check an environment</h2>
 <pre><code>kubectl -n paseo-workspaces get pw
 kubectl -n paseo-workspaces describe pod pw-demo
