@@ -87,3 +87,14 @@ a 10Gi emptyDir and disappears whenever the pod is deleted or replaced, even for
 workspaces using persistent storage. Account for these extra resources in namespace
 quotas. Pod readiness waits for Docker; commands started earlier may need to retry
 until `docker info` succeeds.
+
+## Helm chart
+
+```sh
+helm install paseo-workspaces ./charts/paseo-workspaces -n paseo-workspaces --create-namespace \
+  --set image.tag=<operator image tag> --set gateway.enabled=true
+```
+
+`charts/paseo-workspaces/crds/` is a copy of `config/crd.yaml` (CI checks they match; refresh with `make chart-crd`).
+Helm installs CRDs once but never upgrades them: apply `config/crd.yaml` yourself when upgrading.
+The gateway is off by default; enabling it adds permissions to the operator Role.

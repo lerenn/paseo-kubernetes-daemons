@@ -24,3 +24,15 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build -t paseo-workspace:test images/workspace
       - run: docker run --rm -i --network none --entrypoint python3 paseo-workspace:test - < images/workspace/tests/smoke.py
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Chart CRD matches config/crd.yaml
+        run: diff config/crd.yaml charts/paseo-workspaces/crds/paseoworkspaces.yaml
+      - name: Lint and render the chart
+        run: |
+          for args in "" "--set gateway.enabled=true --set quota.enabled=true --set networkPolicy.enabled=true --set workspacePullSecret=x"; do
+            docker run --rm -v "$PWD/charts:/c" alpine/helm:3 lint /c/paseo-workspaces $args
+            docker run --rm -v "$PWD/charts:/c" alpine/helm:3 template pw /c/paseo-workspaces -n paseo-workspaces $args > /dev/null
+          done

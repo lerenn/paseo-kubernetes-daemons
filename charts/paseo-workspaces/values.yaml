@@ -1,0 +1,45 @@
+image:
+  repository: ghcr.io/lerenn/paseo-workspaces-operator
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+# Pull Secrets for the operator pod.
+imagePullSecrets: []
+# Pull Secret used by the workspace pods the operator creates.
+workspacePullSecret: ""
+resources:
+  requests: {cpu: 50m, memory: 128Mi, ephemeral-storage: 16Mi}
+  limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 64Mi}
+
+# Opt-in virtual "<Name> (Kubernetes)" host served by the operator process. It is
+# reachable only through an internal ClusterIP Service and widens the operator's
+# permissions (create/update/delete workspaces, catalog and identity Secrets).
+gateway:
+  enabled: false
+  port: 8787
+  # Extra DNS names the gateway accepts in addition to its Service names.
+  hostnames: []
+
+# Role for the ServiceAccount running the MAIN daemon (the companion plugin). Bind it yourself.
+pluginRole:
+  enabled: true
+
+# Optional admission limits. Excess pods stay Pending until capacity is freed.
+quota:
+  enabled: false
+  hard:
+    pods: "8"
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    requests.storage: 80Gi
+    persistentvolumeclaims: "8"
+
+# Optional: only labeled main-daemon pods (workspaces.paseo.sh/access=main) reach workspace daemons.
+networkPolicy:
+  enabled: false
+
+# Stop workspace pods from mounting the default ServiceAccount token.
+workspaceServiceAccount:
+  enabled: true
