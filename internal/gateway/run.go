@@ -15,6 +15,7 @@ import (
 type Runnable struct {
 	Client                       client.Client
 	Namespace, Address, Hostname string
+	DefaultImage                 string
 	AllowedHosts, AllowedOrigins []string
 }
 
@@ -24,7 +25,7 @@ func (r *Runnable) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	catalog := Catalog{Client: r.Client, Namespace: r.Namespace}
+	catalog := Catalog{Client: r.Client, Namespace: r.Namespace, DefaultImage: r.DefaultImage}
 	base := &Provisioner{Client: r.Client, Namespace: r.Namespace}
 	permissions := []string{"daemon.read", "workspace.read", "workspace.write", "workspace.manage"}
 	handler, err := NewHandler(ServerConfig{Context: ctx, ServerID: id, Hostname: r.Hostname, Version: "0.16.2", Password: password, AllowedHosts: r.AllowedHosts, AllowedOrigins: r.AllowedOrigins, Permissions: permissions, OpenSession: func(ctx context.Context, identity ScopedIdentity, emit func(Frame) error) SessionSink {

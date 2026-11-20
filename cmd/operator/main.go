@@ -15,11 +15,12 @@ import (
 )
 
 func main() {
-	var namespace, gatewayAddress, extraHosts, pullSecret string
+	var namespace, gatewayAddress, extraHosts, pullSecret, defaultImage string
 	flag.StringVar(&namespace, "namespace", "default", "Namespace managed by this operator")
 	flag.StringVar(&gatewayAddress, "gateway-listen", "", "Opt-in gateway listen address; empty disables it")
 	flag.StringVar(&extraHosts, "gateway-hostnames", "", "Additional comma-separated DNS names accepted by the gateway")
 	flag.StringVar(&pullSecret, "workspace-pull-secret", "", "Image pull Secret used by workspace pods")
+	flag.StringVar(&defaultImage, "default-workspace-image", "", "Workspace image used by gateway profiles that set none")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -47,7 +48,7 @@ func main() {
 				hosts = append(hosts, strings.TrimSpace(host))
 			}
 		}
-		if err = manager.Add(&gateway.Runnable{Client: direct, Namespace: namespace, Address: gatewayAddress, Hostname: "Kubernetes", AllowedHosts: hosts}); err != nil {
+		if err = manager.Add(&gateway.Runnable{Client: direct, Namespace: namespace, Address: gatewayAddress, Hostname: "Kubernetes", DefaultImage: defaultImage, AllowedHosts: hosts}); err != nil {
 			ctrl.Log.Error(err, "gateway setup")
 			os.Exit(1)
 		}

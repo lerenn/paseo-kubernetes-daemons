@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -118,5 +119,19 @@ func TestMissingProfileDoesNotCreateWorkspace(t *testing.T) {
 	}
 	if len(list.Items) != 0 {
 		t.Fatal("created workspace without complete profile")
+	}
+}
+
+func TestCatalogDefaultsMissingImage(t *testing.T) {
+	entries := []ProfileConfiguration{{Profile: "p"}}
+	data, _ := json.Marshal(entries)
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: CatalogName, Namespace: "ns", Labels: map[string]string{"workspaces.paseo.sh/profile-owner": "x"}}, Data: map[string]string{"projects.json": string(data)}}
+	c := fake.NewClientBuilder().WithObjects(cm).Build()
+	if _, err := (Catalog{Client: c, Namespace: "ns"}).Load(context.Background()); err == nil {
+		t.Fatal("missing image without default must fail")
+	}
+	got, err := (Catalog{Client: c, Namespace: "ns", DefaultImage: "img:1"}).Load(context.Background())
+	if err != nil || len(got) != 1 || got[0].Image != "img:1" {
+		t.Fatalf("got %+v err %v", got, err)
 	}
 }

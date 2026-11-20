@@ -27,6 +27,8 @@ type ProfileConfiguration struct {
 type Catalog struct {
 	Client    client.Client
 	Namespace string
+	// DefaultImage is used for profiles that do not set a workspace image.
+	DefaultImage string
 }
 
 func (c Catalog) Load(ctx context.Context) ([]*Provisioner, error) {
@@ -46,6 +48,9 @@ func (c Catalog) Load(ctx context.Context) ([]*Provisioner, error) {
 	}
 	result := make([]*Provisioner, 0, len(entries))
 	for _, entry := range entries {
+		if entry.Image == "" {
+			entry.Image = c.DefaultImage
+		}
 		if entry.Profile == "" || entry.Image == "" {
 			return nil, errors.New("gateway profile or workspace image is missing")
 		}
