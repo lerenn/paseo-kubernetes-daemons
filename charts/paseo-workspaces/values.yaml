@@ -5,6 +5,8 @@ image:
   pullPolicy: IfNotPresent
 # Pull Secrets for the operator pod.
 imagePullSecrets: []
+# Workspace image for gateway profiles that set none. Defaults to paseo-workspace:<appVersion>.
+workspaceImage: ""
 # Pull Secret used by the workspace pods the operator creates.
 workspacePullSecret: ""
 resources:

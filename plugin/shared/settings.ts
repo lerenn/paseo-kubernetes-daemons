@@ -13,11 +13,13 @@ export const bundleSchema = z.object({
   repository: z.string(),
   gatewayReady: z.boolean().default(false),
 });
+// Keep in step with plugin/package.json: releases publish paseo-workspace:<version>.
+export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.2.0";
 export const settingsSchema = z.object({
   context: z.string().max(200).default(""),
   namespace: resourceName.default("paseo-workspaces"),
   clusterId: z.string().min(1).max(100).default("default"),
-  image: z.string().max(500).default(""),
+  image: z.string().max(500).default(DEFAULT_WORKSPACE_IMAGE),
   mainConnection: z.string().max(1000).default(""),
   docker: z.boolean().default(false),
   ephemeral: z.boolean().default(true),

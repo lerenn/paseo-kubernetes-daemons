@@ -86,6 +86,7 @@ spec:
             {{- if .Values.workspacePullSecret }}
             - --workspace-pull-secret={{ .Values.workspacePullSecret }}
             {{- end }}
+            - --default-workspace-image={{ .Values.workspaceImage | default (printf "ghcr.io/lerenn/paseo-workspace:%s" .Chart.AppVersion) }}
             {{- if .Values.gateway.enabled }}
             - --gateway-listen=:{{ .Values.gateway.port }}
             {{- with .Values.gateway.hostnames }}
