@@ -13,6 +13,11 @@ type HelloIdentity struct {
 	ClientType string
 }
 
+type ScopedIdentity struct {
+	HelloIdentity
+	Permissions []string
+}
+
 // AuthenticateHello validates the gateway-facing Paseo handshake. The caller
 // must configure a strong shared password; uncredentialed operation is not
 // supported. Scoped/routed credentials are rejected until permission checks
@@ -56,4 +61,46 @@ func AuthenticateHello(frame []byte, password string) (HelloIdentity, error) {
 		return HelloIdentity{}, errors.New("authentication failed")
 	}
 	return HelloIdentity{ClientID: hello.ClientID, ClientType: hello.ClientType}, nil
+}
+
+// AdmitLinkedHello is only for a logical channel owned by a previously
+// authenticated physical connection. Its permissions are always intersected
+// with that connection's authority; the inner hello provides no authentication.
+func AdmitLinkedHello(frame []byte, parentPermissions []string) (ScopedIdentity, error) {
+	var hello struct {
+		Type        string          `json:"type"`
+		ClientID    string          `json:"clientId"`
+		ClientType  string          `json:"clientType"`
+		Protocol    int             `json:"protocolVersion"`
+		Permissions json.RawMessage `json:"sessionPermissions"`
+	}
+	if len(frame) > 64*1024 || json.Unmarshal(frame, &hello) != nil || hello.Type != "hello" || hello.Protocol < 1 {
+		return ScopedIdentity{}, errors.New("invalid linked hello")
+	}
+	if strings.TrimSpace(hello.ClientID) != hello.ClientID || hello.ClientID == "" || len(hello.ClientID) > 256 || strings.HasPrefix(hello.ClientID, "plugin:") {
+		return ScopedIdentity{}, errors.New("invalid client identity")
+	}
+	switch hello.ClientType {
+	case "browser", "mobile", "cli", "mcp", "hub":
+	default:
+		return ScopedIdentity{}, errors.New("invalid client type")
+	}
+	permissions := append([]string(nil), parentPermissions...)
+	if len(hello.Permissions) > 0 {
+		var scope []string
+		if string(hello.Permissions) == "null" || json.Unmarshal(hello.Permissions, &scope) != nil {
+			return ScopedIdentity{}, errors.New("invalid session permissions")
+		}
+		requested := make(map[string]bool, len(scope))
+		for _, p := range scope {
+			requested[p] = true
+		}
+		permissions = permissions[:0]
+		for _, p := range parentPermissions {
+			if requested[p] {
+				permissions = append(permissions, p)
+			}
+		}
+	}
+	return ScopedIdentity{HelloIdentity: HelloIdentity{ClientID: hello.ClientID, ClientType: hello.ClientType}, Permissions: permissions}, nil
 }

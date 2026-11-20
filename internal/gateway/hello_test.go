@@ -29,3 +29,22 @@ func TestAuthenticateHello(t *testing.T) {
 		t.Fatal("empty password should fail without leaking credentials")
 	}
 }
+
+func TestLinkedHelloNeverElevatesParent(t *testing.T) {
+	frame := []byte(`{"type":"hello","clientId":"routed-client","clientType":"browser","protocolVersion":1,"routed":true,"sessionPermissions":["workspace.read","workspace.write"]}`)
+	identity, err := AdmitLinkedHello(frame, []string{"workspace.read"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(identity.Permissions) != 1 || identity.Permissions[0] != "workspace.read" {
+		t.Fatalf("permission escalation: %v", identity.Permissions)
+	}
+	if err := AuthorizeOperation(identity.Permissions, "fs.file.write.request"); err == nil {
+		t.Fatal("linked read-only client can write")
+	}
+	frame = []byte(`{"type":"hello","clientId":"routed-client","clientType":"browser","protocolVersion":1,"sessionPermissions":[]}`)
+	identity, err = AdmitLinkedHello(frame, []string{"workspace.read"})
+	if err != nil || len(identity.Permissions) != 0 {
+		t.Fatal("empty scope should grant nothing")
+	}
+}
