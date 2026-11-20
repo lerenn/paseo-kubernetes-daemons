@@ -177,6 +177,8 @@ test("sync sends values only in immutable Secrets, never ConfigMaps, CRs or resp
     assert.ok(writes.every((o) => o.immutable === true));
     const config = writes.find((o) => o.kind === "ConfigMap")!;
     assert.ok(!JSON.stringify(config).includes("PRIVATE_"));
+    const bootstrap = JSON.parse((config.data as Record<string, string>)["bootstrap.json"]);
+    assert.deepEqual(bootstrap.providers, ["codex-login", "anthropic-key"]);
     assert.ok(!JSON.stringify(result).includes("PRIVATE_"));
     assert.equal(result.scope, scopeOf(c));
     assert.ok(result.name.length + 4 <= 63);

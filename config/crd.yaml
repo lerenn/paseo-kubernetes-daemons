@@ -107,4 +107,5 @@ spec:
                 message: {type: string}
                 phase: {type: string}
                 endpoint: {type: string}
+                podUID: {type: string}
                 observedGeneration: {type: integer, format: int64}

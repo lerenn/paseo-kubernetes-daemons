@@ -783,6 +783,11 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
                 Only selected credentials are exported to Kubernetes Secrets in{" "}
                 {draft.namespace}. The panel never receives their values.
               </Text>
+              {currentBundle && !currentBundle.gatewayReady && (
+                <Text style={text}>
+                  Sync again to include provider and MCP selections in this profile.
+                </Text>
+              )}
               <Text style={text}>
                 Credentials are snapshots. Existing pods keep their writable
                 copies. Re-sync after credentials change; OAuth refresh is not

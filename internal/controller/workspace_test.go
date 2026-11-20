@@ -65,6 +65,21 @@ func TestReconcile(t *testing.T) {
 	if status["phase"] != "Ready" || status["endpoint"] != "pw-demo.test.svc:6767" {
 		t.Fatalf("wrong status: %v", status)
 	}
+	pod.Status.Conditions = nil
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "daemon", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}}}}
+	if err := c.Status().Update(ctx, pod); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	status = got.Object["status"].(map[string]interface{})
+	if status["phase"] != "Failed" || status["message"] != "ImagePullBackOff" {
+		t.Fatalf("wrong failure status: %v", status)
+	}
 	// A replacement pod is rebuilt from the same CR, retaining the same PVC.
 	if err := c.Delete(ctx, pod); err != nil {
 		t.Fatal(err)

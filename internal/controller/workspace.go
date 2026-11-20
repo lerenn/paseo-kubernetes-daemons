@@ -192,7 +192,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			message = "Bootstrap failed; inspect the bootstrap init-container logs"
 		}
 	}
-	status := map[string]interface{}{"message": message, "phase": phase, "endpoint": fmt.Sprintf("%s.%s.svc:6767", name, req.Namespace), "observedGeneration": w.GetGeneration()}
+	for _, state := range actual.Status.ContainerStatuses {
+		if state.State.Waiting != nil {
+			reason := state.State.Waiting.Reason
+			if reason == "CrashLoopBackOff" || reason == "ImagePullBackOff" || reason == "ErrImagePull" {
+				phase = "Failed"
+				message = reason
+			}
+		}
+		if state.State.Terminated != nil && state.State.Terminated.ExitCode != 0 {
+			phase = "Failed"
+			message = fmt.Sprintf("container %s exited with code %d", state.Name, state.State.Terminated.ExitCode)
+		}
+	}
+	status := map[string]interface{}{"message": message, "phase": phase, "endpoint": fmt.Sprintf("%s.%s.svc:6767", name, req.Namespace), "observedGeneration": w.GetGeneration(), "podUID": string(actual.UID)}
 	old := w.DeepCopy()
 	w.Object["status"] = status
 	if err = r.Status().Patch(ctx, w, client.MergeFrom(old)); err != nil {

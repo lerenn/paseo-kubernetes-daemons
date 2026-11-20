@@ -290,6 +290,7 @@ export async function bundle(
     environment: vars,
     bootstrap: {
       repository: s.url ? { url: s.url, revision: selection.revision } : null,
+      providers: selection.providers,
       mcps: selection.mcps,
       trustRepository: selection.trustRepository,
     },
@@ -370,5 +371,6 @@ export async function sync(
     providers: selection.providers,
     mcps: selection.mcps,
     repository: data.bootstrap.repository?.url ?? "",
+    gatewayReady: true,
   };
 }
