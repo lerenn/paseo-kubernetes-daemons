@@ -27,7 +27,7 @@ func (p *Provisioner) SelectBackend(ctx context.Context, frame []byte) (string, 
 	case "agent.create.request", "create_agent_request":
 		// An optional agentId is a new identity and cannot yet be resolved.
 		fields = []string{"workspaceId"}
-	case "send_agent_message", "send_agent_message_request", "cancel_agent_request", "fetch_agent_request", "fetch_agent_history_request", "fetch_agent_timeline_request", "agent.timeline.search.request", "agent.timeline.list_prompts.request", "agent.timeline.set_subscription.request", "agent.timeline.append.request", "agent_permission_response":
+	case "send_agent_message_request", "cancel_agent_request", "fetch_agent_request", "fetch_agent_history_request", "fetch_agent_timeline_request", "agent.timeline.search.request", "agent.timeline.list_prompts.request", "agent.timeline.set_subscription.request", "agent.timeline.append.request", "agent_permission_response":
 		fields = []string{"agentId"}
 	case "workspace.script.list.request", "workspace.script.start.request", "workspace.script.stop.request", "start_workspace_script_request":
 		fields = []string{"workspaceId"}
