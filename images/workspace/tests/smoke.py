@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory() as directory:
     (config / 'bootstrap.json').write_text(json.dumps({'repository': {'url':url,'revision':''}, 'mcps':['docs'],'trustRepository':True}))
     bootstrap.prepare(workspace, secrets, config, 'smoke-test')
     environment = {**os.environ, 'HOME':str(workspace), 'CODEX_HOME':str(workspace / '.codex'), 'PASEO_HOME':str(workspace / '.paseo')}
-    for command in [['paseo','--version'],['codex','--version']]:
+    for command in [['paseo','--version'],['codex','--version'],['claude','--version']]:
         print(subprocess.check_output(command, env=environment, text=True).strip())
     result = subprocess.run(['codex','mcp','list','--json'], cwd=repo, env=environment, text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stderr

@@ -20,7 +20,7 @@ const providerEnv = {
 } as const;
 const labels = {
   "openai-key": "OpenAI API key",
-  "anthropic-key": "Anthropic API key (install its provider in the image)",
+  "anthropic-key": "Anthropic API key (Claude Code)",
   "gemini-key": "Gemini API key (install its provider in the image)",
   "github-token": "GitHub token for HTTPS repository checkout",
 };
