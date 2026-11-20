@@ -3,6 +3,8 @@ package gateway
 import (
 	"encoding/json"
 	"errors"
+	"path"
+	"strings"
 )
 
 // PrepareCreate translates a creation request for a project already mapped to
@@ -54,6 +56,32 @@ func PrepareCreate(frame []byte, projectID, projectRoot string) ([]byte, error) 
 		source["path"] = podRoot
 	} else {
 		source["cwd"] = podRoot
+	}
+	if raw, ok := envelope.Message["agent"]; ok && string(raw) != "null" {
+		var agent map[string]json.RawMessage
+		if json.Unmarshal(raw, &agent) != nil || agent == nil {
+			return nil, errors.New("invalid initial agent")
+		}
+		var config map[string]json.RawMessage
+		if json.Unmarshal(agent["config"], &config) != nil || config == nil {
+			return nil, errors.New("invalid initial agent configuration")
+		}
+		var cwd string
+		if json.Unmarshal(config["cwd"], &cwd) != nil || path.Clean(cwd) != cwd || (cwd != projectRoot && !strings.HasPrefix(cwd, projectRoot+"/")) {
+			return nil, errors.New("initial agent directory is outside the approved project")
+		}
+		mapped, _ := json.Marshal("/workspace/repository" + strings.TrimPrefix(cwd, projectRoot))
+		config["cwd"] = mapped
+		configRaw, err := json.Marshal(config)
+		if err != nil {
+			return nil, err
+		}
+		agent["config"] = configRaw
+		agentRaw, err := json.Marshal(agent)
+		if err != nil {
+			return nil, err
+		}
+		envelope.Message["agent"] = agentRaw
 	}
 	translated, err := json.Marshal(source)
 	if err != nil {
