@@ -30,6 +30,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Chart CRD matches config/crd.yaml
         run: diff config/crd.yaml charts/paseo-workspaces/crds/paseoworkspaces.yaml
+      - name: Chart and plugin versions match
+        run: |
+          plugin=$(sed -n 's/.*"version": "\(.*\)",/\1/p' plugin/package.json | head -1)
+          grep -qx "version: $plugin" charts/paseo-workspaces/Chart.yaml
+          grep -qx "appVersion: \"$plugin\"" charts/paseo-workspaces/Chart.yaml
       - name: Lint and render the chart
         run: |
           for args in "" "--set gateway.enabled=true --set quota.enabled=true --set networkPolicy.enabled=true --set workspacePullSecret=x"; do
