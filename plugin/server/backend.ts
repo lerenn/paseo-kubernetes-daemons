@@ -165,7 +165,6 @@ export async function syncGateway(
   );
   let password = "";
   try {
-    await run(["get", "service", gatewayService, "-o", "name"]);
     const secret = JSON.parse(
       await run(["get", "secret", gatewaySecret, "-o", "json"]),
     ) as { data?: Record<string, string> };

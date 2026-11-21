@@ -104,9 +104,7 @@ test("syncGateway registers the virtual host while the gateway Secret exists", a
   const c = { ...defaults(), namespace: "ns", clusterId: "c1", context: "" };
   const run = async (args: string[]) => {
     if (!present) throw new KubernetesError("missing");
-    return args[1] === "secret"
-      ? JSON.stringify({ data: { password: Buffer.from("s3 cret").toString("base64") } })
-      : "service/paseo-workspaces-gateway";
+    return JSON.stringify({ data: { password: Buffer.from("s3 cret").toString("base64") } });
   };
   await syncGateway(api, c, run);
   assert.equal(adds.length, 1);
