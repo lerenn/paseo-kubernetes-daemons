@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PaseoApi } from "@getpaseo/client";
-import { syncHosts, create, release } from "./backend.js";
+import { syncHosts, syncGateway, create, release, defaults } from "./backend.js";
+import { KubernetesError } from "./kubernetes.js";
 
 test("validates names before invoking kubectl", async () => {
   await assert.rejects(create("../wrong"));
@@ -71,4 +72,50 @@ test("registers ready environments, reverse links, and removes only stale owned 
     if (previous === undefined) delete process.env.PASEO_MAIN_CONNECTION;
     else process.env.PASEO_MAIN_CONNECTION = previous;
   }
+});
+
+test("syncGateway registers the virtual host while the gateway Secret exists", async () => {
+  const adds: any[] = [];
+  const removed: string[] = [];
+  let present = true;
+  const api = {
+    hosts: {
+      list: async () => ({
+        self: { serverId: "main", label: "Main" },
+        hosts: present
+          ? []
+          : [
+              {
+                registrationId: "gw",
+                metadata: { manager: "paseo-kubernetes-workspaces", scope: "c1/ns", gateway: "true" },
+              },
+              { registrationId: "pod", metadata: { manager: "paseo-kubernetes-workspaces", scope: "c1/ns", workspaceUid: "u" } },
+            ],
+      }),
+      add: async (input: unknown) => {
+        adds.push(input);
+        return { serverId: "gw", status: "online" };
+      },
+      remove: async (id: string) => {
+        removed.push(id);
+      },
+    },
+  } as unknown as PaseoApi;
+  const c = { ...defaults(), namespace: "ns", clusterId: "c1", context: "" };
+  const run = async (args: string[]) => {
+    if (!present) throw new KubernetesError("missing");
+    return JSON.stringify({ data: { password: Buffer.from("s3 cret").toString("base64") } });
+  };
+  await syncGateway(api, c, run);
+  assert.equal(adds.length, 1);
+  assert.equal(adds[0].label, "Main (Kubernetes)");
+  assert.equal(adds[0].connection, "tcp://paseo-workspaces-gateway.ns.svc:8787?password=s3%20cret");
+  present = false;
+  assert.equal(await syncGateway(api, c, run), null);
+  assert.deepEqual(removed, ["gw"]);
+  const outage = async () => {
+    throw new KubernetesError("unavailable");
+  };
+  await assert.rejects(syncGateway(api, c, outage));
+  assert.deepEqual(removed, ["gw"]);
 });

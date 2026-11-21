@@ -5,7 +5,7 @@ import {
   scopeOf,
   type Configuration,
 } from "../shared/settings.js";
-import { connection } from "./kubernetes.js";
+import { connection, KubernetesError, type Kubectl } from "./kubernetes.js";
 
 export interface Environment {
   metadata: { name: string; uid: string; deletionTimestamp?: string };
@@ -94,6 +94,7 @@ export async function syncHosts(
     if (
       host.metadata.manager === manager &&
       host.metadata.scope === scope &&
+      host.metadata.workspaceUid !== undefined &&
       !live.has(host.metadata.workspaceUid)
     ) {
       await paseo.hosts.remove(host.registrationId);
@@ -141,6 +142,49 @@ export async function syncHosts(
   }
   return results;
 }
+const gatewayService = "paseo-workspaces-gateway";
+const gatewaySecret = "paseo-workspaces-gateway-auth";
+const gatewayPort = 8787;
+/**
+ * Registers the operator's virtual "<Name> (Kubernetes)" host while the gateway is enabled,
+ * and removes it once its identity Secret is gone. Failures other than "missing" leave the
+ * registration untouched so an API outage cannot erase it.
+ */
+export async function syncGateway(
+  paseo: PaseoApi,
+  c: Configuration = defaults(),
+  run: Kubectl = connection(c),
+) {
+  const scope = `${c.context ? c.context + "/" : ""}${c.clusterId}/${c.namespace}`;
+  const directory = await paseo.hosts.list();
+  const existing = directory.hosts.filter(
+    (h) =>
+      h.metadata.manager === manager &&
+      h.metadata.scope === scope &&
+      h.metadata.gateway === "true",
+  );
+  let password = "";
+  try {
+    const secret = JSON.parse(
+      await run(["get", "secret", gatewaySecret, "-o", "json"]),
+    ) as { data?: Record<string, string> };
+    password = Buffer.from(secret.data?.password ?? "", "base64").toString();
+  } catch (error) {
+    if (!(error instanceof KubernetesError) || error.reason !== "missing")
+      throw error;
+  }
+  if (!password) {
+    for (const host of existing) await paseo.hosts.remove(host.registrationId);
+    return null;
+  }
+  const name = directory.self.label || c.clusterId;
+  return paseo.hosts.add({
+    connection: `tcp://${gatewayService}.${c.namespace}.svc:${gatewayPort}?password=${encodeURIComponent(password)}`,
+    label: `${name} (Kubernetes)`,
+    sourceKey: `kubernetes-gateway/${scope}`,
+    metadata: { manager, scope, gateway: "true" },
+  });
+}
 const inFlight = new Map<
   string,
   Promise<Awaited<ReturnType<typeof syncHosts>>>
@@ -163,7 +207,12 @@ async function reconcile(paseo: PaseoApi, c: Configuration) {
       "json",
     ]),
   ) as { items: Environment[] };
-  return syncHosts(paseo, result.items, c);
+  const environments = await syncHosts(paseo, result.items, c);
+  // A gateway problem must not hide the pod hosts that did reconcile.
+  await syncGateway(paseo, c).catch(() => {
+    console.error("Kubernetes gateway host registration failed. Retrying.");
+  });
+  return environments;
 }
 export async function release(name: string, c: Configuration = defaults()) {
   nameSchema.parse(name);
