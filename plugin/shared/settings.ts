@@ -14,13 +14,15 @@ export const bundleSchema = z.object({
   gatewayReady: z.boolean().default(false),
 });
 // Keep in step with plugin/package.json: releases publish paseo-workspace:<version>.
-export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.2.1";
+export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.2.2";
 export const settingsSchema = z.object({
   context: z.string().max(200).default(""),
   namespace: resourceName.default("paseo-workspaces"),
   clusterId: z.string().min(1).max(100).default("default"),
   image: z.string().max(500).default(DEFAULT_WORKSPACE_IMAGE),
   mainConnection: z.string().max(1000).default(""),
+  // Public host:port (TLS) of the operator's virtual host, for clients outside the cluster.
+  gatewayEndpoint: z.string().max(300).default(""),
   docker: z.boolean().default(false),
   ephemeral: z.boolean().default(true),
   bundle: bundleSchema.nullable().default(null),

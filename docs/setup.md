@@ -71,6 +71,12 @@ Service `paseo-workspaces-gateway.<namespace>.svc:8787` and the password in the 
 `paseo-workspaces-gateway-auth` Secret. This needs the main daemon to reach that Service
 and to hold the plugin Role (get on that Secret). The host is removed when the Secret is gone.
 
+Apps outside the cluster (a laptop, for example) cannot resolve that `.svc` name, so the host
+shows as unreachable there. Expose the Service through an Ingress with TLS, add its hostname to
+the chart's `gateway.hostnames`, and set **Public gateway endpoint** (`host[:port]`, default port
+443, or `PASEO_WORKSPACES_GATEWAY_ENDPOINT`) in the plugin. The plugin then registers
+`tcp://<endpoint>?ssl=true`, still authenticated with the Secret's password.
+
 An optional main-daemon endpoint enables reverse host registration. The main daemon
 must be reachable from the pod; ordinary pod registration is directional. Configure
 authentication and Service/network policy for your deployment.
