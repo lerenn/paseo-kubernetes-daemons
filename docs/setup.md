@@ -65,6 +65,12 @@ Deployment. When using a kubeconfig, the screen pins the detected context to avo
 silently exporting credentials to a different cluster after `kubectl` changes its
 current context. In-cluster service-account access does not require a context.
 
+When the operator runs with the gateway enabled (chart value `gateway.enabled=true`), the
+plugin registers the virtual "<Name> (Kubernetes)" host by itself, using the in-cluster
+Service `paseo-workspaces-gateway.<namespace>.svc:8787` and the password in the operator's
+`paseo-workspaces-gateway-auth` Secret. This needs the main daemon to reach that Service
+and to hold the plugin Role (get on that Secret). The host is removed when the Secret is gone.
+
 An optional main-daemon endpoint enables reverse host registration. The main daemon
 must be reachable from the pod; ordinary pod registration is directional. Configure
 authentication and Service/network policy for your deployment.
