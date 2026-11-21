@@ -10,7 +10,6 @@
     [
       "npm",
       "ci",
-      "--omit=dev",
       "--ignore-scripts"
     ]
   ]
