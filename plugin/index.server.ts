@@ -33,6 +33,8 @@ export default function contribute(server: PluginServerContext) {
       ...state.values,
       image: state.values.image || defaults().image,
       mainConnection: state.values.mainConnection || defaults().mainConnection,
+      gatewayEndpoint:
+        state.values.gatewayEndpoint || defaults().gatewayEndpoint,
     });
   }
   server.handle(inspectSetup, async (_, { paseo }) => {

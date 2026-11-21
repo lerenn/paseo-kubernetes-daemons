@@ -461,6 +461,15 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
                 hint="Enable communication initiated by pod agents back to the main daemon."
                 disabled={busy}
               />
+              <Field
+                theme={theme}
+                label="Public gateway endpoint"
+                value={draft.gatewayEndpoint}
+                onChange={(v) => patch("gatewayEndpoint", v)}
+                placeholder="Optional, e.g. workspaces.paseo.example.net"
+                hint="TLS host[:port] of the operator's Kubernetes host, for apps outside the cluster. Empty uses the in-cluster Service."
+                disabled={busy}
+              />
               <Choice
                 theme={theme}
                 label="Enable Docker"

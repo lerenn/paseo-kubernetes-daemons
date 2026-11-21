@@ -119,3 +119,20 @@ test("syncGateway registers the virtual host while the gateway Secret exists", a
   await assert.rejects(syncGateway(api, c, outage));
   assert.deepEqual(removed, ["gw"]);
 });
+
+test("syncGateway registers the public TLS endpoint when one is configured", async () => {
+  const adds: any[] = [];
+  const api = {
+    hosts: {
+      list: async () => ({ self: { serverId: "m", label: "Main" }, hosts: [] }),
+      add: async (i: unknown) => (adds.push(i), { serverId: "g", status: "online" }),
+      remove: async () => {},
+    },
+  } as unknown as PaseoApi;
+  const run = async () => JSON.stringify({ data: { password: Buffer.from("pw").toString("base64") } });
+  const base = { ...defaults(), namespace: "ns", clusterId: "c1", context: "" };
+  await syncGateway(api, { ...base, gatewayEndpoint: "workspaces.example.net" }, run);
+  await syncGateway(api, { ...base, gatewayEndpoint: "w.example.net:8443" }, run);
+  assert.equal(adds[0].connection, "tcp://workspaces.example.net:443?ssl=true&password=pw");
+  assert.equal(adds[1].connection, "tcp://w.example.net:8443?ssl=true&password=pw");
+});

@@ -18,6 +18,7 @@ export function defaults(): Configuration {
     clusterId: process.env.PASEO_WORKSPACE_CLUSTER_ID ?? "default",
     image: process.env.PASEO_WORKSPACE_IMAGE ?? "",
     mainConnection: process.env.PASEO_MAIN_CONNECTION ?? "",
+    gatewayEndpoint: process.env.PASEO_WORKSPACES_GATEWAY_ENDPOINT ?? "",
   });
 }
 export async function create(name: string, c: Configuration = defaults()) {
@@ -145,6 +146,17 @@ export async function syncHosts(
 const gatewayService = "paseo-workspaces-gateway";
 const gatewaySecret = "paseo-workspaces-gateway-auth";
 const gatewayPort = 8787;
+// A public endpoint (host or host:port, TLS) lets clients outside the cluster connect;
+// otherwise use the in-cluster Service, which only the daemon itself can resolve.
+function gatewayConnection(c: Configuration, password: string) {
+  const secret = encodeURIComponent(password);
+  const endpoint = c.gatewayEndpoint.trim();
+  if (endpoint) {
+    const hostPort = /:\d+$/.test(endpoint) ? endpoint : `${endpoint}:443`;
+    return `tcp://${hostPort}?ssl=true&password=${secret}`;
+  }
+  return `tcp://${gatewayService}.${c.namespace}.svc:${gatewayPort}?password=${secret}`;
+}
 /**
  * Registers the operator's virtual "<Name> (Kubernetes)" host while the gateway is enabled,
  * and removes it once its identity Secret is gone. Failures other than "missing" leave the
@@ -179,7 +191,7 @@ export async function syncGateway(
   }
   const name = directory.self.label || c.clusterId;
   return paseo.hosts.add({
-    connection: `tcp://${gatewayService}.${c.namespace}.svc:${gatewayPort}?password=${encodeURIComponent(password)}`,
+    connection: gatewayConnection(c, password),
     label: `${name} (Kubernetes)`,
     sourceKey: `kubernetes-gateway/${scope}`,
     metadata: { manager, scope, gateway: "true" },
