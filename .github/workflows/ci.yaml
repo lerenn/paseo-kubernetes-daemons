@@ -37,7 +37,7 @@ jobs:
           grep -qx "appVersion: \"$plugin\"" charts/paseo-workspaces/Chart.yaml
       - name: Lint and render the chart
         run: |
-          for args in "" "--set gateway.enabled=true --set quota.enabled=true --set networkPolicy.enabled=true --set workspacePullSecret=x"; do
+          for args in "" "--set gateway.enabled=true --set gateway.tls.secretName=x --set quota.enabled=true --set networkPolicy.enabled=true --set workspacePullSecret=x"; do
             docker run --rm -v "$PWD/charts:/c" alpine/helm:3 lint /c/paseo-workspaces $args
             docker run --rm -v "$PWD/charts:/c" alpine/helm:3 template pw /c/paseo-workspaces -n paseo-workspaces $args > /dev/null
           done

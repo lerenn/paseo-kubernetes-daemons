@@ -29,6 +29,12 @@ gateway:
   port: 8787
   # Extra DNS names the gateway accepts in addition to its Service names.
   hostnames: []
+  # TLS-terminating nginx sidecar + Service "paseo-workspaces-gateway-tls" (443). Set secretName to a
+  # kubernetes.io/tls Secret in the release namespace to enable; empty keeps the plain gateway only.
+  tls:
+    secretName: ""
+    port: 8788
+    image: docker.io/nginxinc/nginx-unprivileged:1.30.6-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
 
 # Role for the ServiceAccount running the MAIN daemon (the companion plugin). Bind it yourself.
 pluginRole:
