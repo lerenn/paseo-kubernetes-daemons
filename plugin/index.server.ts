@@ -35,6 +35,8 @@ export default function contribute(server: PluginServerContext) {
       mainConnection: state.values.mainConnection || defaults().mainConnection,
       gatewayEndpoint:
         state.values.gatewayEndpoint || defaults().gatewayEndpoint,
+      gatewayHostName:
+        state.values.gatewayHostName || defaults().gatewayHostName,
     });
   }
   server.handle(inspectSetup, async (_, { paseo }) => {

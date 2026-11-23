@@ -186,3 +186,20 @@ test("syncGateway updates an existing registration instead of adding (source_con
   await syncGateway(api, c, run);
   assert.deepEqual(calls, ["update:old:tcp://w.example.net:443?ssl=true&password=pw"]);
 });
+
+test("syncGateway uses the custom gatewayHostName as the label when set", async () => {
+  const adds: any[] = [];
+  const api = {
+    hosts: {
+      list: async () => ({ self: { serverId: "m", label: "Main" }, hosts: [] }),
+      add: async (i: unknown) => (adds.push(i), { serverId: "g", status: "online" }),
+      remove: async () => {},
+    },
+  } as unknown as PaseoApi;
+  const run = async () => JSON.stringify({ data: { password: Buffer.from("pw").toString("base64") } });
+  const base = { ...defaults(), namespace: "ns", clusterId: "c1", context: "" };
+  await syncGateway(api, { ...base, gatewayHostName: "  Anyshift Lab  " }, run);
+  assert.equal(adds[0].label, "Anyshift Lab");
+  await syncGateway(api, { ...base, gatewayHostName: "" }, run);
+  assert.equal(adds[1].label, "Main (Kubernetes)");
+});
