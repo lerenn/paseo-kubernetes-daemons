@@ -9,6 +9,14 @@ imagePullSecrets: []
 workspaceImage: ""
 # Pull Secret used by the workspace pods the operator creates.
 workspacePullSecret: ""
+# Docker-in-Docker sidecar of workspaces with spec.docker.enabled (privileged container).
+docker:
+  # Pin by digest if your cluster only admits digest-pinned images.
+  image: docker:29.0.0-dind
+  # MTU of dockerd and its default bridge networks (0 keeps Docker's default).
+  mtu: 1450
+  # Docker Hub mirrors (--registry-mirror); must be reachable from the workspace namespace.
+  registryMirrors: []
 resources:
   requests: {cpu: 50m, memory: 128Mi, ephemeral-storage: 16Mi}
   limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 64Mi}

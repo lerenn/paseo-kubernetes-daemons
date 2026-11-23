@@ -14,7 +14,7 @@ export const bundleSchema = z.object({
   gatewayReady: z.boolean().default(false),
 });
 // Keep in step with plugin/package.json: releases publish paseo-workspace:<version>.
-export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.2.2";
+export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.2.3";
 export const settingsSchema = z.object({
   context: z.string().max(200).default(""),
   namespace: resourceName.default("paseo-workspaces"),

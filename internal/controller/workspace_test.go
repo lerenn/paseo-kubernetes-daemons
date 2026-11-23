@@ -10,6 +10,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -249,5 +250,44 @@ func TestDockerSidecar(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDockerSidecarConfiguration(t *testing.T) {
+	r := &Reconciler{DockerMTU: 1450, DockerRegistryMirrors: []string{"https://m1.example", "https://m2.example"}}
+	args := r.dockerdArgs()
+	for _, want := range []string{"--feature=containerd-snapshotter=false", "--mtu=1450", "--default-network-opt=bridge=com.docker.network.driver.mtu=1450", "--registry-mirror=https://m1.example", "--registry-mirror=https://m2.example"} {
+		if !slices.Contains(args, want) {
+			t.Fatalf("missing %s in %v", want, args)
+		}
+	}
+	for _, arg := range (&Reconciler{}).dockerdArgs() {
+		if strings.HasPrefix(arg, "--mtu") || strings.HasPrefix(arg, "--registry-mirror") {
+			t.Fatalf("unexpected %s by default", arg)
+		}
+	}
+}
+
+func TestDockerSidecarImage(t *testing.T) {
+	for image, want := range map[string]string{"": DefaultDockerImage, "docker.io/library/docker:1-dind@sha256:abc": "docker.io/library/docker:1-dind@sha256:abc"} {
+		scheme := runtime.NewScheme()
+		_ = corev1.AddToScheme(scheme)
+		w := object()
+		w.SetName("img")
+		w.SetNamespace("test")
+		w.SetUID("uid")
+		w.Object["spec"] = map[string]interface{}{"image": "test", "storage": "4Gi", "ephemeral": true, "docker": map[string]interface{}{"enabled": true}}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(w).WithObjects(w).Build()
+		r := &Reconciler{Client: c, Namespace: "test", DockerImage: image}
+		if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "img", Namespace: "test"}}); err != nil {
+			t.Fatal(err)
+		}
+		pod := &corev1.Pod{}
+		if err := c.Get(context.Background(), types.NamespacedName{Name: "pw-img", Namespace: "test"}, pod); err != nil {
+			t.Fatal(err)
+		}
+		if got := pod.Spec.Containers[1]; got.Name != "docker" || got.Image != want {
+			t.Fatalf("got %s %s, want docker %s", got.Name, got.Image, want)
+		}
 	}
 }

@@ -21,6 +21,11 @@ func main() {
 	flag.StringVar(&extraHosts, "gateway-hostnames", "", "Additional comma-separated DNS names accepted by the gateway")
 	flag.StringVar(&pullSecret, "workspace-pull-secret", "", "Image pull Secret used by workspace pods")
 	flag.StringVar(&defaultImage, "default-workspace-image", "", "Workspace image used by gateway profiles that set none")
+	var dockerImage, dockerMirrors string
+	var dockerMTU int
+	flag.StringVar(&dockerImage, "docker-image", controller.DefaultDockerImage, "Docker-in-Docker sidecar image for workspaces with Docker enabled")
+	flag.IntVar(&dockerMTU, "docker-mtu", 1450, "MTU for the Docker sidecar and its default bridge networks; 0 leaves Docker defaults")
+	flag.StringVar(&dockerMirrors, "docker-registry-mirror", "", "Comma-separated Docker Hub registry mirrors for the Docker sidecar")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -32,7 +37,13 @@ func main() {
 		ctrl.Log.Error(err, "manager")
 		os.Exit(1)
 	}
-	if err = (&controller.Reconciler{Client: manager.GetClient(), Namespace: namespace, ImagePullSecret: pullSecret}).Setup(manager); err != nil {
+	var mirrors []string
+	for _, mirror := range strings.Split(dockerMirrors, ",") {
+		if strings.TrimSpace(mirror) != "" {
+			mirrors = append(mirrors, strings.TrimSpace(mirror))
+		}
+	}
+	if err = (&controller.Reconciler{Client: manager.GetClient(), Namespace: namespace, ImagePullSecret: pullSecret, DockerImage: dockerImage, DockerMTU: dockerMTU, DockerRegistryMirrors: mirrors}).Setup(manager); err != nil {
 		ctrl.Log.Error(err, "setup")
 		os.Exit(1)
 	}

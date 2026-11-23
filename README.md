@@ -73,7 +73,7 @@ workspace. With manifests, set `spec.docker.enabled: true`. Apply the updated CR
 and deploy the updated operator and workspace image first; existing workspace
 specifications are immutable.
 
-Each enabled pod gets a `docker:29.0.0-dind` sidecar and the workspace image includes
+Each enabled pod gets a `docker:29.0.0-dind` sidecar (configurable, see below) and the workspace image includes
 Docker CLI, Buildx and Compose. The engine listens only on the shared Unix socket
 at `/var/run/docker/docker.sock`; no node Docker socket is mounted. Both containers
 mount `/workspace` at the same path so workspace bind mounts work. Published ports
@@ -87,6 +87,17 @@ a 10Gi emptyDir and disappears whenever the pod is deleted or replaced, even for
 workspaces using persistent storage. Account for these extra resources in namespace
 quotas. Pod readiness waits for Docker; commands started earlier may need to retry
 until `docker info` succeeds.
+
+The sidecar is configured through chart values (operator flags):
+
+| Value | Flag | Default | Purpose |
+| --- | --- | --- | --- |
+| `docker.image` | `--docker-image` | `docker:29.0.0-dind` | Sidecar image. Clusters with image allowlists or pod-security policies should pin it by digest (`repo:tag@sha256:...`). |
+| `docker.mtu` | `--docker-mtu` | `1450` | MTU of dockerd and its default bridge networks (match your CNI overlay; `0` keeps Docker's default). |
+| `docker.registryMirrors` | `--docker-registry-mirror` | `[]` | Docker Hub mirrors (`--registry-mirror`). They only apply to Docker Hub pulls and must be reachable from the workspace namespace. |
+
+The containerd image store (`containerd-snapshotter`) is always disabled in the sidecar
+because it breaks pushes and concurrent pulls in nested Docker.
 
 ## Helm chart
 

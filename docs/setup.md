@@ -57,6 +57,15 @@ paseo plugin install "$PWD"
 # paseo plugin reload kubernetes-workspaces
 ```
 
+### Docker sidecar settings
+
+Workspaces with `spec.docker.enabled` get a privileged `docker` sidecar. Tune it with
+chart values `docker.image`, `docker.mtu` (default 1450) and `docker.registryMirrors`
+(default none). Clusters with image-allowlist or pod-security policies should pin
+`docker.image` by digest (`docker.io/library/docker:<version>-dind@sha256:...`) and allow a
+privileged container named `docker` in the workspace namespace. A registry mirror only
+applies to Docker Hub pulls and must be reachable from the workspace namespace.
+
 ## Connect the cluster
 
 Open **Kubernetes Workspaces**. Save the context, namespace, stable cluster ID and

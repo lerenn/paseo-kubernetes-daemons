@@ -47,6 +47,27 @@ type Reconciler struct {
 	client.Client
 	Namespace       string
 	ImagePullSecret string
+	// DockerImage is the Docker-in-Docker sidecar image; empty means DefaultDockerImage.
+	DockerImage string
+	// DockerMTU, when positive, is applied to dockerd and its default bridge networks.
+	DockerMTU int
+	// DockerRegistryMirrors are Docker Hub mirrors passed to dockerd.
+	DockerRegistryMirrors []string
+}
+
+// DefaultDockerImage is the Docker-in-Docker sidecar image when none is configured.
+const DefaultDockerImage = "docker:29.0.0-dind"
+
+func (r *Reconciler) dockerdArgs() []string {
+	// The containerd image store breaks pushes and concurrent pulls in nested Docker.
+	args := []string{"dockerd", "--host=unix:///var/run/docker/docker.sock", "--group=1000", "--feature=containerd-snapshotter=false"}
+	if r.DockerMTU > 0 {
+		args = append(args, fmt.Sprintf("--mtu=%d", r.DockerMTU), fmt.Sprintf("--default-network-opt=bridge=com.docker.network.driver.mtu=%d", r.DockerMTU))
+	}
+	for _, mirror := range r.DockerRegistryMirrors {
+		args = append(args, "--registry-mirror="+mirror)
+	}
+	return args
 }
 
 func object() *unstructured.Unstructured {
@@ -144,9 +165,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		daemon.Env = append(daemon.Env, corev1.EnvVar{Name: "DOCKER_HOST", Value: "unix:///var/run/docker/docker.sock"})
 		daemon.VolumeMounts = append(daemon.VolumeMounts, socket)
 		// Pod readiness must wait for both the daemon and Docker.
+		dockerImage := r.DockerImage
+		if dockerImage == "" {
+			dockerImage = DefaultDockerImage
+		}
 		pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{
-			Name: "docker", Image: "docker:29.0.0-dind",
-			Args:            []string{"dockerd", "--host=unix:///var/run/docker/docker.sock", "--group=1000"},
+			Name: "docker", Image: dockerImage,
+			Args:            r.dockerdArgs(),
 			Env:             []corev1.EnvVar{{Name: "DOCKER_TLS_CERTDIR", Value: ""}},
 			SecurityContext: &corev1.SecurityContext{Privileged: boolPtr(true), RunAsUser: &root, RunAsGroup: &root, RunAsNonRoot: boolPtr(false)},
 			Resources: corev1.ResourceRequirements{
