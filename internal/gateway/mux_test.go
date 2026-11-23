@@ -48,7 +48,11 @@ func TestMuxOpensScopedHostChannel(t *testing.T) {
 	}
 	write := `{"type":"session","message":{"type":"fs.file.write.request","requestId":"r"}}`
 	frames, err = mux.Handle(ctx, child(write))
-	if err != nil || len(frames) != 1 || !strings.Contains(string(frames[0].Data), "hosts.route.closed") {
-		t.Fatalf("write should close channel: %v %v", frames, err)
+	if err != nil || len(frames) != 1 || !strings.Contains(string(frames[0].Data), "access_denied") || strings.Contains(string(frames[0].Data), "hosts.route.closed") {
+		t.Fatalf("write should be denied without closing the channel: %v %v", frames, err)
+	}
+	frames, err = mux.Handle(ctx, child(read))
+	if err != nil || len(frames) != 1 || !strings.Contains(string(frames[0].Data), "fetch_workspaces_response") {
+		t.Fatalf("channel should survive a denied request: %v %v", frames, err)
 	}
 }

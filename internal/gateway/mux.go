@@ -124,6 +124,18 @@ func (m *Mux) Handle(ctx context.Context, frame Frame) ([]Frame, error) {
 
 func (m *Mux) child(ctx context.Context, route string, frame Frame) ([]Frame, error) {
 	identity, err := m.Link.Accept(route, frame)
+	var denied *OperationDeniedError
+	if errors.As(err, &denied) {
+		if denied.RequestID == "" {
+			return nil, nil
+		}
+		reply, e := sessionFrame(map[string]interface{}{"type": "rpc_error", "payload": map[string]string{"requestId": denied.RequestID, "requestType": denied.Operation, "code": "access_denied", "error": "Session is not authorized for " + denied.Operation}})
+		if e != nil {
+			return nil, e
+		}
+		wrapped, e := m.wrap(route, reply)
+		return []Frame{wrapped}, e
+	}
 	if err != nil {
 		closed, e := m.closeRoute(route, "permission_denied", "Host channel rejected the request")
 		return []Frame{closed}, e

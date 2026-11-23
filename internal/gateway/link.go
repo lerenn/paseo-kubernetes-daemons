@@ -54,6 +54,18 @@ func (l *Link) Open(scope string) (string, error) {
 	}
 }
 
+// OperationDeniedError reports an operation the channel may not perform. Like
+// the upstream daemon, the caller answers it with an rpc_error and keeps the
+// channel open: closing the channel would reset every subscription on it.
+type OperationDeniedError struct {
+	Operation string
+	RequestID string
+	Err       error
+}
+
+func (e *OperationDeniedError) Error() string { return e.Err.Error() }
+func (e *OperationDeniedError) Unwrap() error { return e.Err }
+
 // Accept authenticates the first logical hello and authorizes subsequent
 // session operations. Binary input is rejected until transfer ownership is
 // implemented; outgoing binary frames are handled separately.
@@ -84,7 +96,8 @@ func (l *Link) Accept(routeID string, frame Frame) (*ScopedIdentity, error) {
 	var message struct {
 		Type    string `json:"type"`
 		Message struct {
-			Type string `json:"type"`
+			Type      string `json:"type"`
+			RequestID string `json:"requestId"`
 		} `json:"message"`
 	}
 	if json.Unmarshal(frame.Data, &message) != nil {
@@ -97,7 +110,7 @@ func (l *Link) Accept(routeID string, frame Frame) (*ScopedIdentity, error) {
 		return nil, errors.New("invalid host channel session")
 	}
 	if err := AuthorizeOperation(channel.identity.Permissions, message.Message.Type); err != nil && message.Message.Type != "subscription.release.request" {
-		return nil, err
+		return nil, &OperationDeniedError{Operation: message.Message.Type, RequestID: message.Message.RequestID, Err: err}
 	}
 	return cloneIdentity(channel.identity), nil
 }
