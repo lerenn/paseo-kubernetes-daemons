@@ -470,6 +470,15 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
                 hint="TLS host[:port] of the operator's Kubernetes host, for apps outside the cluster. Empty uses the in-cluster Service."
                 disabled={busy}
               />
+              <Field
+                theme={theme}
+                label="Host name"
+                value={draft.gatewayHostName}
+                onChange={(v) => patch("gatewayHostName", v)}
+                placeholder="Optional, e.g. Anyshift Lab (Kubernetes)"
+                hint="Shown in the host picker. Empty uses '<daemon name> (Kubernetes)'."
+                disabled={busy}
+              />
               <Choice
                 theme={theme}
                 label="Enable Docker"

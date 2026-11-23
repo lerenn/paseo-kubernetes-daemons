@@ -19,6 +19,7 @@ export function defaults(): Configuration {
     image: process.env.PASEO_WORKSPACE_IMAGE ?? "",
     mainConnection: process.env.PASEO_MAIN_CONNECTION ?? "",
     gatewayEndpoint: process.env.PASEO_WORKSPACES_GATEWAY_ENDPOINT ?? "",
+    gatewayHostName: process.env.PASEO_WORKSPACES_GATEWAY_HOST_NAME ?? "",
   });
 }
 export async function create(name: string, c: Configuration = defaults()) {
@@ -195,10 +196,12 @@ export async function syncGateway(
       for (const host of existing) await paseo.hosts.remove(host.registrationId);
       return null;
     }
-    const name = directory.self.label || c.clusterId;
+    const customName = c.gatewayHostName.trim();
+    const label =
+      customName || `${directory.self.label || c.clusterId} (Kubernetes)`;
     const registration = {
       connection: gatewayConnection(c, password),
-      label: `${name} (Kubernetes)`,
+      label,
       metadata: { manager, scope, gateway: "true" },
     };
     // hosts.add refuses an existing sourceKey (source_conflict), so a registration

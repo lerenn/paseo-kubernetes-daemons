@@ -23,6 +23,8 @@ export const settingsSchema = z.object({
   mainConnection: z.string().max(1000).default(""),
   // Public host:port (TLS) of the operator's virtual host, for clients outside the cluster.
   gatewayEndpoint: z.string().max(300).default(""),
+  // Display name for the gateway host in the host picker. Empty uses "<daemon name> (Kubernetes)".
+  gatewayHostName: z.string().max(100).default(""),
   docker: z.boolean().default(false),
   ephemeral: z.boolean().default(true),
   bundle: bundleSchema.nullable().default(null),
