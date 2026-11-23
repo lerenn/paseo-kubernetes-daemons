@@ -108,6 +108,46 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
+        {{- if and .Values.gateway.enabled .Values.gateway.tls.secretName }}
+        # TLS in front of the plain-websocket gateway; the Secret is reloaded daily for renewals.
+        - name: gateway-tls
+          image: {{ .Values.gateway.tls.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              nginx -g 'daemon off;' &
+              pid=$!
+              trap 'stop=1; kill -QUIT "$pid"' TERM INT
+              while [ -z "$stop" ] && kill -0 "$pid" 2>/dev/null; do
+                sleep 86400 & wait $!
+                [ -z "$stop" ] && nginx -s reload
+              done
+              wait "$pid"
+          ports:
+            - {name: gateway-tls, containerPort: {{ .Values.gateway.tls.port }}}
+          readinessProbe:
+            tcpSocket: {port: gateway-tls}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: gateway-tls-config, mountPath: /etc/nginx/conf.d, readOnly: true}
+            - {name: gateway-tls, mountPath: /etc/paseo-workspaces-gateway-tls, readOnly: true}
+      volumes:
+        - name: gateway-tls-config
+          configMap: {name: paseo-workspaces-gateway-tls}
+        - name: gateway-tls
+          secret: {secretName: {{ .Values.gateway.tls.secretName | quote }}}
+        {{- end }}
 {{- if .Values.gateway.enabled }}
 ---
 apiVersion: v1
@@ -121,4 +161,48 @@ spec:
   selector: {app: paseo-workspaces-operator}
   ports:
     - {name: gateway, port: {{ .Values.gateway.port }}, targetPort: gateway}
+{{- end }}
+{{- if and .Values.gateway.enabled .Values.gateway.tls.secretName }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paseo-workspaces-gateway-tls
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+    }
+    server {
+        listen {{ .Values.gateway.tls.port }} ssl;
+        ssl_certificate /etc/paseo-workspaces-gateway-tls/tls.crt;
+        ssl_certificate_key /etc/paseo-workspaces-gateway-tls/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        location / {
+            proxy_pass http://127.0.0.1:{{ .Values.gateway.port }};
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_buffering off;
+            proxy_read_timeout 7200s;
+            proxy_send_timeout 7200s;
+        }
+    }
+---
+# https (443): in-cluster clients that need TLS, e.g. a CoreDNS rewrite of the public gateway name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: paseo-workspaces-gateway-tls
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "pw.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {app: paseo-workspaces-operator}
+  ports:
+    - {name: https, port: 443, targetPort: gateway-tls}
 {{- end }}
