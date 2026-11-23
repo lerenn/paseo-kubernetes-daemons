@@ -87,6 +87,11 @@ spec:
             - --workspace-pull-secret={{ .Values.workspacePullSecret }}
             {{- end }}
             - --default-workspace-image={{ .Values.workspaceImage | default (printf "ghcr.io/lerenn/paseo-workspace:%s" .Chart.AppVersion) }}
+            - --docker-image={{ .Values.docker.image }}
+            - --docker-mtu={{ .Values.docker.mtu }}
+            {{- with .Values.docker.registryMirrors }}
+            - --docker-registry-mirror={{ join "," . }}
+            {{- end }}
             {{- if .Values.gateway.enabled }}
             - --gateway-listen=:{{ .Values.gateway.port }}
             {{- with .Values.gateway.hostnames }}
