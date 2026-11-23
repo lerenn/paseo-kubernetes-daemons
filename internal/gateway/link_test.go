@@ -1,6 +1,9 @@
 package gateway
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestLinkScopesAndCloses(t *testing.T) {
 	link := NewLink([]string{"workspace.read"})
@@ -43,5 +46,24 @@ func TestLinkEnforcesChannelLimit(t *testing.T) {
 	}
 	if _, err := link.Open("scope"); err == nil {
 		t.Fatal("channel limit was not enforced")
+	}
+}
+
+func TestLinkDeniedOperationIsRecoverable(t *testing.T) {
+	link := NewLink([]string{"workspace.read"})
+	route, _ := link.Open("scope")
+	hello := Frame{Data: []byte(`{"type":"hello","clientId":"client","clientType":"browser","protocolVersion":1}`)}
+	if _, err := link.Accept(route, hello); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range []string{"plugin.list.request", "no.such.request"} {
+		_, err := link.Accept(route, Frame{Data: []byte(`{"type":"session","message":{"type":"` + op + `","requestId":"7"}}`)})
+		var denied *OperationDeniedError
+		if !errors.As(err, &denied) || denied.RequestID != "7" || denied.Operation != op {
+			t.Fatalf("%s: %v", op, err)
+		}
+		if !link.Has(route) {
+			t.Fatal("denied operation closed the channel")
+		}
 	}
 }
