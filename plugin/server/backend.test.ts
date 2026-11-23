@@ -161,3 +161,28 @@ test("gateway failures are logged redacted, with context, once per interval", as
   assert.equal(lines.length, 2);
   assert.equal(redact(new Error("x password=abc&y=1")), "x password=[redacted]&y=1");
 });
+
+test("syncGateway updates an existing registration instead of adding (source_conflict)", async () => {
+  const calls: string[] = [];
+  const api = {
+    hosts: {
+      list: async () => ({
+        self: { serverId: "m", label: "Main" },
+        hosts: [{ registrationId: "old", metadata: {}, source: { id: "p", key: "kubernetes-gateway/c1/ns" } }],
+      }),
+      add: async () => {
+        calls.push("add");
+        throw new Error("source_conflict");
+      },
+      update: async (id: string, patch: { connection: string }) => {
+        calls.push(`update:${id}:${patch.connection}`);
+        return { serverId: "g", status: "online" };
+      },
+      remove: async () => {},
+    },
+  } as unknown as PaseoApi;
+  const run = async () => JSON.stringify({ data: { password: Buffer.from("pw").toString("base64") } });
+  const c = { ...defaults(), namespace: "ns", clusterId: "c1", context: "", gatewayEndpoint: "w.example.net" };
+  await syncGateway(api, c, run);
+  assert.deepEqual(calls, ["update:old:tcp://w.example.net:443?ssl=true&password=pw"]);
+});

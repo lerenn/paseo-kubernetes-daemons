@@ -172,11 +172,13 @@ export async function syncGateway(
   try {
     const scope = `${c.context ? c.context + "/" : ""}${c.clusterId}/${c.namespace}`;
     const directory = await paseo.hosts.list();
+    const sourceKey = `kubernetes-gateway/${scope}`;
     const existing = directory.hosts.filter(
       (h) =>
-        h.metadata.manager === manager &&
-        h.metadata.scope === scope &&
-        h.metadata.gateway === "true",
+        (h.metadata.manager === manager &&
+          h.metadata.scope === scope &&
+          h.metadata.gateway === "true") ||
+        h.source?.key === sourceKey,
     );
     stage = "kubectl get secret";
     try {
@@ -194,13 +196,19 @@ export async function syncGateway(
       return null;
     }
     const name = directory.self.label || c.clusterId;
-    stage = "hosts.add";
-    return await paseo.hosts.add({
+    const registration = {
       connection: gatewayConnection(c, password),
       label: `${name} (Kubernetes)`,
-      sourceKey: `kubernetes-gateway/${scope}`,
       metadata: { manager, scope, gateway: "true" },
-    });
+    };
+    // hosts.add refuses an existing sourceKey (source_conflict), so a registration
+    // left by an older version (other target) is updated in place instead.
+    if (existing.length > 0) {
+      stage = "hosts.update";
+      return await paseo.hosts.update(existing[0].registrationId, registration);
+    }
+    stage = "hosts.add";
+    return await paseo.hosts.add({ ...registration, sourceKey });
   } catch (error) {
     throw new GatewayError(stage, redact(error, password), error);
   }
