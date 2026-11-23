@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PaseoApi } from "@getpaseo/client";
-import { syncHosts, syncGateway, create, release, defaults } from "./backend.js";
+import { syncHosts, syncGateway, logGatewayError, redact, create, release, defaults } from "./backend.js";
 import { KubernetesError } from "./kubernetes.js";
 
 test("validates names before invoking kubectl", async () => {
@@ -135,4 +135,29 @@ test("syncGateway registers the public TLS endpoint when one is configured", asy
   await syncGateway(api, { ...base, gatewayEndpoint: "w.example.net:8443" }, run);
   assert.equal(adds[0].connection, "tcp://workspaces.example.net:443?ssl=true&password=pw");
   assert.equal(adds[1].connection, "tcp://w.example.net:8443?ssl=true&password=pw");
+});
+
+test("gateway failures are logged redacted, with context, once per interval", async () => {
+  const api = {
+    hosts: {
+      list: async () => ({ self: { serverId: "m", label: "Main" }, hosts: [] }),
+      add: async () => {
+        throw new Error("dial tcp: tcp://h:443?ssl=true&password=s3%20cret failed for s3 cret");
+      },
+      remove: async () => {},
+    },
+  } as unknown as PaseoApi;
+  const run = async () => JSON.stringify({ data: { password: Buffer.from("s3 cret").toString("base64") } });
+  const c = { ...defaults(), namespace: "ns", clusterId: "c1", context: "" };
+  const error = await syncGateway(api, c, run).then(() => null, (e) => e);
+  const lines: string[] = [];
+  const log = (m: string) => lines.push(m);
+  logGatewayError(error, log, 1_000_000);
+  logGatewayError(error, log, 1_005_000);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /hosts\.add: /);
+  assert.doesNotMatch(lines[0], /s3|cret/);
+  logGatewayError(error, log, 1_000_000 + 6 * 60_000);
+  assert.equal(lines.length, 2);
+  assert.equal(redact(new Error("x password=abc&y=1")), "x password=[redacted]&y=1");
 });

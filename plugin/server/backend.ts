@@ -167,35 +167,74 @@ export async function syncGateway(
   c: Configuration = defaults(),
   run: Kubectl = connection(c),
 ) {
-  const scope = `${c.context ? c.context + "/" : ""}${c.clusterId}/${c.namespace}`;
-  const directory = await paseo.hosts.list();
-  const existing = directory.hosts.filter(
-    (h) =>
-      h.metadata.manager === manager &&
-      h.metadata.scope === scope &&
-      h.metadata.gateway === "true",
-  );
+  let stage = "hosts.list";
   let password = "";
   try {
-    const secret = JSON.parse(
-      await run(["get", "secret", gatewaySecret, "-o", "json"]),
-    ) as { data?: Record<string, string> };
-    password = Buffer.from(secret.data?.password ?? "", "base64").toString();
+    const scope = `${c.context ? c.context + "/" : ""}${c.clusterId}/${c.namespace}`;
+    const directory = await paseo.hosts.list();
+    const existing = directory.hosts.filter(
+      (h) =>
+        h.metadata.manager === manager &&
+        h.metadata.scope === scope &&
+        h.metadata.gateway === "true",
+    );
+    stage = "kubectl get secret";
+    try {
+      const secret = JSON.parse(
+        await run(["get", "secret", gatewaySecret, "-o", "json"]),
+      ) as { data?: Record<string, string> };
+      password = Buffer.from(secret.data?.password ?? "", "base64").toString();
+    } catch (error) {
+      if (!(error instanceof KubernetesError) || error.reason !== "missing")
+        throw error;
+    }
+    if (!password) {
+      stage = "hosts.remove";
+      for (const host of existing) await paseo.hosts.remove(host.registrationId);
+      return null;
+    }
+    const name = directory.self.label || c.clusterId;
+    stage = "hosts.add";
+    return await paseo.hosts.add({
+      connection: gatewayConnection(c, password),
+      label: `${name} (Kubernetes)`,
+      sourceKey: `kubernetes-gateway/${scope}`,
+      metadata: { manager, scope, gateway: "true" },
+    });
   } catch (error) {
-    if (!(error instanceof KubernetesError) || error.reason !== "missing")
-      throw error;
+    throw new GatewayError(stage, redact(error, password), error);
   }
-  if (!password) {
-    for (const host of existing) await paseo.hosts.remove(host.registrationId);
-    return null;
+}
+export class GatewayError extends Error {
+  constructor(
+    public readonly stage: string,
+    detail: string,
+    public readonly original: unknown,
+  ) {
+    super(`${stage}: ${detail}`);
   }
-  const name = directory.self.label || c.clusterId;
-  return paseo.hosts.add({
-    connection: gatewayConnection(c, password),
-    label: `${name} (Kubernetes)`,
-    sourceKey: `kubernetes-gateway/${scope}`,
-    metadata: { manager, scope, gateway: "true" },
-  });
+}
+/** Error text with the gateway secret and any `password=` value removed. */
+export function redact(error: unknown, password = "") {
+  let text = error instanceof Error ? error.message : String(error);
+  for (const secret of [password, encodeURIComponent(password)])
+    if (secret) text = text.split(secret).join("[redacted]");
+  return text.replace(/(password=)[^&\s"']*/gi, "$1[redacted]");
+}
+const gatewayLogged = new Map<string, number>();
+const gatewayLogInterval = 5 * 60_000;
+/** Logs a gateway failure once per distinct message every few minutes. */
+export function logGatewayError(
+  error: unknown,
+  log: (message: string) => void = console.error,
+  now = Date.now(),
+) {
+  const detail =
+    error instanceof GatewayError ? error.message : `unknown: ${redact(error)}`;
+  const last = gatewayLogged.get(detail);
+  if (last !== undefined && now - last < gatewayLogInterval) return;
+  gatewayLogged.set(detail, now);
+  log(`Kubernetes gateway host registration failed (${detail}). Retrying.`);
 }
 const inFlight = new Map<
   string,
@@ -221,9 +260,7 @@ async function reconcile(paseo: PaseoApi, c: Configuration) {
   ) as { items: Environment[] };
   const environments = await syncHosts(paseo, result.items, c);
   // A gateway problem must not hide the pod hosts that did reconcile.
-  await syncGateway(paseo, c).catch(() => {
-    console.error("Kubernetes gateway host registration failed. Retrying.");
-  });
+  await syncGateway(paseo, c).catch((error) => logGatewayError(error));
   return environments;
 }
 export async function release(name: string, c: Configuration = defaults()) {
