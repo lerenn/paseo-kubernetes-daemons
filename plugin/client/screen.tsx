@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import {
   Badge,
   Button,
@@ -38,6 +38,13 @@ import {
 } from "../shared/contracts.js";
 import type { z } from "zod";
 type Inventory = z.output<typeof discoverSources.output>;
+const TABS = [
+  { id: "overview", label: "Overview", icon: "Gauge" },
+  { id: "cluster", label: "Cluster", icon: "Server" },
+  { id: "credentials", label: "Credentials", icon: "KeyRound" },
+  { id: "workspaces", label: "Workspaces", icon: "Boxes" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
 type Environment = {
   message?: string;
   name: string;
@@ -71,6 +78,7 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
     [oauth, setOauth] = useState(false),
     [name, setName] = useState(""),
     [rows, setRows] = useState<Environment[]>([]);
+  const [tab, setTab] = useState<TabId>("overview");
   const [width, setWidth] = useState(0);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
@@ -232,83 +240,99 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
       <View
         style={{ width: "100%", maxWidth: 1080, alignSelf: "center", gap: 24 }}
       >
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          <View style={{ flex: 1, minWidth: 200, gap: 8 }}>
-            <Text
+        <View style={{ gap: 14 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+            <View
               style={{
-                fontSize: 27,
-                lineHeight: 34,
-                fontWeight: "600",
-                letterSpacing: -0.5,
-                color: theme.colors.foreground,
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: theme.colors.accent,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              Your workspace cloud
-            </Text>
-            <Text style={{ ...text, fontSize: 15, lineHeight: 23 }}>
-              Connect once. Give every project a place of its own.
-            </Text>
-          </View>
-          <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-workspaces/blob/main/docs/setup.md">
-            Setup guide
-          </ExternalLink>
-        </View>
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 20,
-            paddingVertical: 2,
-          }}
-        >
-          {[
-            {
-              label: connected ? "Cluster connected" : "Connect cluster",
-              done: connected,
-            },
-            {
-              label: currentBundle ? "Credentials ready" : "Choose credentials",
-              done: !!currentBundle,
-            },
-            {
-              label: rows.length
-                ? `${rows.length} workspace${rows.length === 1 ? "" : "s"}`
-                : "Launch workspace",
-              done: rows.length > 0,
-            },
-          ].map((item) => (
-            <View
-              key={item.label}
-              style={{ flexDirection: "row", alignItems: "center", gap: 7 }}
-            >
               <Icon
-                name={item.done ? "CircleCheck" : "Circle"}
-                size={15}
-                color={
-                  item.done
-                    ? theme.colors.statusSuccess
-                    : theme.colors.foregroundMuted
-                }
+                name="Boxes"
+                size={26}
+                color={theme.colors.accentForeground}
               />
+            </View>
+            <View style={{ flex: 1, minWidth: 160, gap: 2 }}>
               <Text
                 style={{
-                  ...text,
-                  color: item.done
-                    ? theme.colors.foreground
-                    : theme.colors.foregroundMuted,
+                  color: theme.colors.foreground,
+                  fontSize: width && width < 600 ? 20 : 24,
+                  fontWeight: "700",
                 }}
               >
-                {item.label}
+                Kubernetes Workspaces
+              </Text>
+              <Text
+                style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}
+              >
+                Run Paseo workspaces as pods on your Kubernetes cluster.
               </Text>
             </View>
-          ))}
+            <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-workspaces/blob/main/docs/setup.md">
+              Setup guide
+            </ExternalLink>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 4 }}
+            style={{
+              borderBottomWidth: 1,
+              borderBottomColor: theme.colors.border,
+              flexGrow: 0,
+            }}
+          >
+            {TABS.map((t) => {
+              const active = tab === t.id;
+              return (
+                <Pressable
+                  key={t.id}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={t.label}
+                  onPress={() => setTab(t.id)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 7,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderBottomWidth: 2,
+                    borderBottomColor: active
+                      ? theme.colors.accent
+                      : "transparent",
+                  }}
+                >
+                  <Icon
+                    name={t.icon}
+                    size={15}
+                    color={
+                      active
+                        ? theme.colors.accent
+                        : theme.colors.foregroundMuted
+                    }
+                  />
+                  <Text
+                    style={{
+                      color: active
+                        ? theme.colors.foreground
+                        : theme.colors.foregroundMuted,
+                      fontSize: 14,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {t.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
         {(error || settings.saveError) && (
           <View
@@ -341,17 +365,99 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
             />
           </View>
         )}
-        <View
-          style={{
-            flexDirection: wide ? "row" : "column",
-            alignItems: "stretch",
-            gap: 20,
-          }}
-        >
+        {tab === "overview" && (
+          <Card
+            theme={theme}
+            title="Overview"
+            icon="Gauge"
+            description="Where your setup stands."
+          >
+            {(
+              [
+                {
+                  tab: "cluster",
+                  icon: "Server",
+                  label: "Cluster",
+                  done: connected,
+                  value: connected
+                    ? `Connected · ${draft.context || setup?.context || "current context"} · ${draft.namespace}`
+                    : draft.image
+                      ? "Settings saved, not connected"
+                      : "Not configured",
+                  detail: draft.gatewayEndpoint
+                    ? `Public gateway endpoint: ${draft.gatewayEndpoint}`
+                    : "Public gateway endpoint: not set (in-cluster Service)",
+                },
+                {
+                  tab: "credentials",
+                  icon: "KeyRound",
+                  label: "Credentials",
+                  done: !!currentBundle,
+                  value: currentBundle
+                    ? `Last synced ${new Date(currentBundle.syncedAt).toLocaleString()}`
+                    : "Not synced",
+                  detail: currentBundle
+                    ? `${currentBundle.providers.length} provider${currentBundle.providers.length === 1 ? "" : "s"}, ${currentBundle.mcps.length} MCP server${currentBundle.mcps.length === 1 ? "" : "s"}`
+                    : "",
+                },
+                {
+                  tab: "workspaces",
+                  icon: "Boxes",
+                  label: "Workspaces",
+                  done: rows.length > 0,
+                  value: `${rows.length} workspace${rows.length === 1 ? "" : "s"}`,
+                  detail: rows.length
+                    ? `${rows.filter((r) => r.hostStatus === "online").length} online`
+                    : "",
+                },
+              ] as const
+            ).map((item) => (
+              <View
+                key={item.tab}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  paddingVertical: 6,
+                }}
+              >
+                <Icon
+                  name={item.done ? "CircleCheck" : "Circle"}
+                  size={18}
+                  color={
+                    item.done
+                      ? theme.colors.statusSuccess
+                      : theme.colors.foregroundMuted
+                  }
+                />
+                <View style={{ flex: 1, minWidth: 180, gap: 2 }}>
+                  <Text
+                    style={{
+                      ...text,
+                      color: theme.colors.foreground,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {item.label}
+                  </Text>
+                  <Text style={text}>{item.value}</Text>
+                  {item.detail ? <Text style={text}>{item.detail}</Text> : null}
+                </View>
+                <Button
+                  theme={theme}
+                  label={`Go to ${item.label}`}
+                  icon={item.icon}
+                  onPress={() => setTab(item.tab)}
+                />
+              </View>
+            ))}
+          </Card>
+        )}
+        {tab === "cluster" && (
           <Card
             theme={theme}
             title="Cluster"
-            grow={wide}
             icon="Server"
             description="The home for your workspace pods."
             badge={
@@ -553,10 +659,11 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
             </View>
             {!saved && <Text style={text}>You have unsaved changes.</Text>}
           </Card>
+        )}
+        {tab === "credentials" && (
           <Card
             theme={theme}
             title="Credentials"
-            grow={wide}
             icon="KeyRound"
             description="Reuse the accounts you already have."
             badge={
@@ -803,7 +910,8 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
               </Text>
               {currentBundle && !currentBundle.gatewayReady && (
                 <Text style={text}>
-                  Sync again to include provider and MCP selections in this profile.
+                  Sync again to include provider and MCP selections in this
+                  profile.
                 </Text>
               )}
               <Text style={text}>
@@ -848,208 +956,222 @@ export function WorkspaceScreen({ theme, navigation }: PluginScreenProps) {
               </View>
             )}
           </Card>
-        </View>
-        <Card
-          theme={theme}
-          title="Workspaces"
-          icon="Boxes"
-          description="An isolated daemon for every project."
-          badge={
-            <Badge
-              theme={theme}
-              label={`${rows.length} workspace${rows.length === 1 ? "" : "s"}`}
-            />
-          }
-        >
-          <View
-            style={{
-              flexDirection: wide ? "row" : "column",
-              gap: 12,
-              alignItems: wide ? "flex-end" : "stretch",
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Field
+        )}
+        {tab === "workspaces" && (
+          <Card
+            theme={theme}
+            title="Workspaces"
+            icon="Boxes"
+            description="An isolated daemon for every project."
+            badge={
+              <Badge
                 theme={theme}
-                label="Workspace name"
-                placeholder="my-next-project"
-                value={name}
-                onChange={setName}
-                disabled={busy}
+                label={`${rows.length} workspace${rows.length === 1 ? "" : "s"}`}
               />
-            </View>
-            <Button
-              theme={theme}
-              label="Create workspace"
-              icon="Plus"
-              primary
-              disabled={!canCreate}
-              onPress={() =>
-                void action(async () => {
-                  setRows((await create({ name })) as Environment[]);
-                  toast.show("Workspace requested.");
-                })
-              }
-            />
-            <Button
-              theme={theme}
-              label="Refresh"
-              icon="RefreshCw"
-              disabled={busy || !saved || !connected}
-              onPress={() => void action(refresh)}
-            />
-          </View>
-          {rows.length === 0 ? (
+            }
+          >
             <View
               style={{
-                alignItems: "center",
-                gap: 9,
-                paddingVertical: 24,
-                borderWidth: 1,
-                borderStyle: "dashed",
-                borderColor: theme.colors.border,
-                borderRadius: 10,
+                flexDirection: wide ? "row" : "column",
+                gap: 12,
+                alignItems: wide ? "flex-end" : "stretch",
               }}
             >
-              <Icon name="Box" size={28} color={theme.colors.foregroundMuted} />
-              <Text
-                style={{
-                  fontSize: 15,
-                  fontWeight: "500",
-                  color: theme.colors.foreground,
-                }}
-              >
-                Room for your next project
-              </Text>
-              <Text
-                style={{ ...text, textAlign: "center", paddingHorizontal: 16 }}
-              >
-                {connected && currentBundle
-                  ? "Create a workspace to start working in its own pod."
-                  : "Connect your cluster and sync credentials to get started."}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Field
+                  theme={theme}
+                  label="Workspace name"
+                  placeholder="my-next-project"
+                  value={name}
+                  onChange={setName}
+                  disabled={busy}
+                />
+              </View>
+              <Button
+                theme={theme}
+                label="Create workspace"
+                icon="Plus"
+                primary
+                disabled={!canCreate}
+                onPress={() =>
+                  void action(async () => {
+                    setRows((await create({ name })) as Environment[]);
+                    toast.show("Workspace requested.");
+                  })
+                }
+              />
+              <Button
+                theme={theme}
+                label="Refresh"
+                icon="RefreshCw"
+                disabled={busy || !saved || !connected}
+                onPress={() => void action(refresh)}
+              />
             </View>
-          ) : (
-            rows.map((row) => (
+            {rows.length === 0 ? (
               <View
-                key={row.name}
                 style={{
-                  borderTopWidth: 1,
+                  alignItems: "center",
+                  gap: 9,
+                  paddingVertical: 24,
+                  borderWidth: 1,
+                  borderStyle: "dashed",
                   borderColor: theme.colors.border,
-                  paddingTop: 16,
-                  gap: 12,
+                  borderRadius: 10,
                 }}
               >
-                <View
+                <Icon
+                  name="Box"
+                  size={28}
+                  color={theme.colors.foregroundMuted}
+                />
+                <Text
                   style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 12,
-                    flexWrap: "wrap",
+                    fontSize: 15,
+                    fontWeight: "500",
+                    color: theme.colors.foreground,
                   }}
                 >
-                  <View style={{ flex: 1, minWidth: 160, gap: 5 }}>
-                    <Text
-                      style={{
-                        fontSize: 16,
-                        fontWeight: "600",
-                        color: theme.colors.foreground,
-                      }}
-                    >
-                      {row.name}
-                    </Text>
-                    <Text style={text}>
-                      {row.hostStatus === "online"
-                        ? "Ready to work"
-                        : (row.hostStatus ?? row.phase)}
-                    </Text>
-                  </View>
-                  <Badge
-                    theme={theme}
-                    label={row.hostStatus === "online" ? "Online" : row.phase}
-                    tone={
-                      row.hostStatus === "online"
-                        ? "success"
-                        : row.phase === "Failed"
-                          ? "warning"
-                          : "muted"
-                    }
-                  />
-                  {row.hostStatus === "online" && navigation && (
-                    <Button
-                      theme={theme}
-                      label="Open workspace"
-                      primary
-                      disabled={busy}
-                      onPress={() =>
-                        void action(async () => {
-                          navigation.openWorkspace(
-                            await open({ name: row.name }),
-                          );
-                        })
-                      }
-                    />
-                  )}
-                  <Button
-                    theme={theme}
-                    label="Release"
-                    disabled={busy}
-                    onPress={() => setDeleting(row.name)}
-                  />
-                </View>
-                {row.message && <Text style={text}>{row.message}</Text>}
-                {row.error?.message && (
-                  <Text style={{ ...text, color: theme.colors.statusDanger }}>
-                    {row.error.message}
-                  </Text>
-                )}
-                {deleting === row.name && (
+                  Room for your next project
+                </Text>
+                <Text
+                  style={{
+                    ...text,
+                    textAlign: "center",
+                    paddingHorizontal: 16,
+                  }}
+                >
+                  {connected && currentBundle
+                    ? "Create a workspace to start working in its own pod."
+                    : "Connect your cluster and sync credentials to get started."}
+                </Text>
+              </View>
+            ) : (
+              rows.map((row) => (
+                <View
+                  key={row.name}
+                  style={{
+                    borderTopWidth: 1,
+                    borderColor: theme.colors.border,
+                    paddingTop: 16,
+                    gap: 12,
+                  }}
+                >
                   <View
                     style={{
-                      backgroundColor: theme.colors.surface2,
-                      padding: 14,
-                      borderRadius: 8,
+                      flexDirection: "row",
+                      alignItems: "center",
                       gap: 12,
+                      flexWrap: "wrap",
                     }}
                   >
-                    <Text style={text}>
-                      Delete {row.name} and its workspace storage? Export your
-                      results first.
-                    </Text>
-                    <View
-                      style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}
-                    >
+                    <View style={{ flex: 1, minWidth: 160, gap: 5 }}>
+                      <Text
+                        style={{
+                          fontSize: 16,
+                          fontWeight: "600",
+                          color: theme.colors.foreground,
+                        }}
+                      >
+                        {row.name}
+                      </Text>
+                      <Text style={text}>
+                        {row.hostStatus === "online"
+                          ? "Ready to work"
+                          : (row.hostStatus ?? row.phase)}
+                      </Text>
+                    </View>
+                    <Badge
+                      theme={theme}
+                      label={row.hostStatus === "online" ? "Online" : row.phase}
+                      tone={
+                        row.hostStatus === "online"
+                          ? "success"
+                          : row.phase === "Failed"
+                            ? "warning"
+                            : "muted"
+                      }
+                    />
+                    {row.hostStatus === "online" && navigation && (
                       <Button
                         theme={theme}
-                        label="Delete workspace"
-                        danger
+                        label="Open workspace"
+                        primary
                         disabled={busy}
                         onPress={() =>
                           void action(async () => {
-                            await release({ name: row.name });
-                            setDeleting(null);
-                            await refresh();
+                            navigation.openWorkspace(
+                              await open({ name: row.name }),
+                            );
                           })
                         }
                       />
-                      <Button
-                        theme={theme}
-                        label="Cancel"
-                        onPress={() => setDeleting(null)}
-                      />
-                    </View>
+                    )}
+                    <Button
+                      theme={theme}
+                      label="Release"
+                      disabled={busy}
+                      onPress={() => setDeleting(row.name)}
+                    />
                   </View>
-                )}
-                <Disclosure theme={theme} title="Connection details">
-                  <Text selectable style={text}>
-                    Server: {row.serverId ?? "Not registered"}
-                    {"\n"}Directory: {row.cwd}
-                  </Text>
-                </Disclosure>
-              </View>
-            ))
-          )}
-        </Card>
+                  {row.message && <Text style={text}>{row.message}</Text>}
+                  {row.error?.message && (
+                    <Text style={{ ...text, color: theme.colors.statusDanger }}>
+                      {row.error.message}
+                    </Text>
+                  )}
+                  {deleting === row.name && (
+                    <View
+                      style={{
+                        backgroundColor: theme.colors.surface2,
+                        padding: 14,
+                        borderRadius: 8,
+                        gap: 12,
+                      }}
+                    >
+                      <Text style={text}>
+                        Delete {row.name} and its workspace storage? Export your
+                        results first.
+                      </Text>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <Button
+                          theme={theme}
+                          label="Delete workspace"
+                          danger
+                          disabled={busy}
+                          onPress={() =>
+                            void action(async () => {
+                              await release({ name: row.name });
+                              setDeleting(null);
+                              await refresh();
+                            })
+                          }
+                        />
+                        <Button
+                          theme={theme}
+                          label="Cancel"
+                          onPress={() => setDeleting(null)}
+                        />
+                      </View>
+                    </View>
+                  )}
+                  <Disclosure theme={theme} title="Connection details">
+                    <Text selectable style={text}>
+                      Server: {row.serverId ?? "Not registered"}
+                      {"\n"}Directory: {row.cwd}
+                    </Text>
+                  </Disclosure>
+                </View>
+              ))
+            )}
+          </Card>
+        )}
       </View>
     </ScrollView>
   );
