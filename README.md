@@ -115,7 +115,12 @@ The gateway is off by default; enabling it adds permissions to the operator Role
 
 ### Releases
 
-Pushing a `vX.Y.Z` tag publishes `ghcr.io/lerenn/paseo-workspaces-operator:X.Y.Z`, `ghcr.io/lerenn/paseo-workspace:X.Y.Z`
+Releases are automatic. Bump the version in one PR, in all of: `plugin/package.json`, `plugin/package-lock.json`
+(`npm version X.Y.Z --no-git-tag-version` in `plugin/`), `charts/paseo-workspaces/Chart.yaml` (`version` and `appVersion`)
+and the tag of `DEFAULT_WORKSPACE_IMAGE` in `plugin/shared/settings.ts`. The `version` CI job checks they agree and that
+the new version is greater than the latest tag. Merging to `main` runs the Release workflow: if `vX.Y.Z` has no tag yet,
+it publishes the images and chart, then creates the tag and the GitHub release (an already tagged version is a no-op;
+re-run a failed release with *Run workflow* on `main`). Never push tags by hand. It publishes `ghcr.io/lerenn/paseo-workspaces-operator:X.Y.Z`, `ghcr.io/lerenn/paseo-workspace:X.Y.Z`
 and the chart `oci://ghcr.io/lerenn/charts/paseo-workspaces` (chart and app version X.Y.Z):
 
 ```sh
