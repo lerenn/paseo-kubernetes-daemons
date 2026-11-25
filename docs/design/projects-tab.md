@@ -153,6 +153,24 @@ single place to change the policy:
   `"refreshing"` with the warning, and API keys (`openai-key`) recommended for multi-pod use.
 - The daemon's own login can still be invalidated by a pod in `refreshing` mode; the UI says so.
 
+**Spike result (PR 2, Codex 0.170.0).** (1) Refresh tokens rotate and reuse is fatal: the binary carries
+"your refresh token was already used. Please log out and sign in again", so `refreshing` mode really
+invalidates the other holders. (2) The access token in `auth.json` is a JWT valid **10 days**
+(`exp - iat`); `last_refresh` is recorded separately. (3) **Removing the `refresh_token` key makes Codex
+reject the file** (`codex login status`: "failed to deserialize CLI auth from file"), whereas an **empty
+string** `"refresh_token": ""` is accepted ("Logged in using ChatGPT"). So `access-only` must **blank** the
+field, never delete it. Pods therefore work for the access token's remaining life (up to 10 days) and then
+need a re-sync from the main daemon. Not verified: the exact error shown once a blank token has to refresh
+(no network refresh was attempted, to avoid touching the real login). Decision: keep `access-only` as the
+default; the plugin (PR 4) writes the blanked `auth.json` and re-syncs before expiry. The bootstrap image
+copies `auth.json` as given and does not itself rewrite tokens.
+
+**Bootstrap interface (PR 2).** `bootstrap.py` takes `--providers <secretName>` (enables provider mode and is
+appended to the marker as `<profile>+<providers>`), `--providers-secrets` / `--providers-config`
+(default `/var/run/paseo/providers/{credentials,config}`), and optional comma lists `--provider-files` and
+`--provider-mcps` (flag absent = all, empty = none). The controller derives these from
+`spec.bootstrap.providers.{files,mcps}`.
+
 ## 3. Gateway / operator impact beyond the provider set **[CHANGED]**
 
 **How a create request picks a project.** `workspace.create.request` carries `source.projectId` or a
