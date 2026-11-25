@@ -335,12 +335,17 @@ export function WorkspaceScreen({
         contentContainerStyle={{
           padding: pad,
           paddingBottom: pad * 2,
-          maxWidth: 1100,
-          width: "100%",
-          alignSelf: "center",
         }}
       >
-        <View style={{ width: "100%", gap: 24 }}>
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 1100,
+            minWidth: 0,
+            marginHorizontal: "auto",
+            gap: 24,
+          }}
+        >
           {(error || settings.saveError) && (
             <View
               accessibilityRole="alert"
