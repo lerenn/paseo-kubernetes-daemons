@@ -137,6 +137,15 @@ Select only the credentials and MCP definitions to export:
 - **Codex subscription login:** file-backed `auth.json`. This reuses the existing
   account; it does not create another subscription. Keychain-only login cannot be
   exported by this implementation.
+- **Claude subscription:** three routes, best first. (1) `CLAUDE_CODE_OAUTH_TOKEN`, a
+  one-year token from `claude setup-token`: nothing to refresh, one value in the Secret.
+  (2) The file-backed login (`~/.claude/.credentials.json`, or `CLAUDE_CONFIG_DIR`): only the
+  `claudeAiOauth` entry is exported (never the MCP OAuth cache stored in the same file)
+  and written to the pod's Claude config directory at mode 0600. Access-only (default)
+  blanks the refresh token: Claude Code accepts the empty value, so the pod works until the
+  access token expires (about eight hours) and a re-sync renews it. *Refreshing* copies the
+  refresh token, but refresh tokens rotate, so pods and the main host can log each other out.
+  (3) `ANTHROPIC_API_KEY`.
 - **Provider API keys:** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`
   from the main daemon's environment. Their provider executables must exist in the
   workspace image; the supplied image includes Codex only. Choose the subscription

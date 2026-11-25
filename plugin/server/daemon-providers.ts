@@ -1,6 +1,6 @@
-import { readFile, stat } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 // The main daemon's provider list as the new-conversation picker shows it: built-in providers plus
@@ -8,6 +8,26 @@ import { join } from "node:path";
 // config (`paseo.config.get`), which holds their env, including API keys. Secret values stay in
 // this module and in the provider Secret; the rows returned to the panel never contain them.
 
+// The Claude Code config directory of the main daemon: CLAUDE_CONFIG_DIR, else ~/.claude.
+export function claudeDir(o: { claudeHome?: string; env?: NodeJS.ProcessEnv }) {
+  const env = o.env ?? process.env;
+  return env.CLAUDE_CONFIG_DIR || join(o.claudeHome ?? homedir(), ".claude");
+}
+// Reads the subscription login from a Claude config directory and returns what pods may receive:
+// the claudeAiOauth entry only (never the MCP OAuth cache stored in the same file). Access-only
+// blanks the refresh token (key kept; Claude Code accepts an empty one and just stops renewing).
+export async function readClaudeLogin(
+  dir: string,
+  mode: "access-only" | "refreshing",
+  read: (file: string) => Promise<string> = (f) => readFile(f, "utf8"),
+) {
+  const v = JSON.parse(await read(join(dir, ".credentials.json")));
+  const oauth = v?.claudeAiOauth;
+  if (typeof oauth?.accessToken !== "string" || !oauth.accessToken) throw new Error("No Claude login.");
+  const entry = { ...oauth };
+  if (mode === "access-only") entry.refreshToken = "";
+  return JSON.stringify({ claudeAiOauth: entry });
+}
 export const PROFILE_PREFIX = "profile:";
 export const profileRefOf = (id: string) => PROFILE_PREFIX + id;
 export const profileIdOf = (ref: string) =>
@@ -68,9 +88,16 @@ export function analyzeProfile(id: string, d: ProfileDefinition, urls: Record<st
     }));
   const codexHome = envOf(d).find(([k, v]) => k === "CODEX_HOME" && isAbsolutePath(v))?.[1];
   const head = commandHead(d);
+  const claudeConfigDir = envOf(d).find(([k, v]) => k === "CLAUDE_CONFIG_DIR" && isAbsolutePath(v))?.[1];
+  // A profile that carries its own key or token needs no login file from the config directory.
+  const ownClaudeAuth = envOf(d).some(
+    ([k, v]) => !!v && ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"].includes(k),
+  );
   return {
     loopbackUrls,
     codexHome,
+    claudeConfigDir,
+    ownClaudeAuth,
     // A local binary path cannot exist in the pod image.
     localBinary: isAbsolutePath(head) && !head.startsWith("/usr/") ? head : undefined,
   };
@@ -93,13 +120,14 @@ export function profileIds(providers: Record<string, unknown>) {
     .sort();
 }
 
-const BUILTIN_CREDENTIAL: Record<string, string> = { claude: "anthropic-key", gemini: "gemini-key" };
+const BUILTIN_CREDENTIAL: Record<string, string> = { gemini: "gemini-key" };
+// Claude can reach pods three ways, best first: a long-lived token (`claude setup-token`, valid a
+// year, nothing to refresh), the subscription login file, or an API key.
+export const CLAUDE_CREDENTIALS = ["claude-token", "claude-login", "anthropic-key"] as const;
 
 export interface CredentialFacts {
   // Credential ids (codex-login, openai-key, anthropic-key, ...) usable on the main daemon.
   available: Set<string>;
-  // A Claude subscription (OAuth) login exists: it cannot be copied to pods.
-  claudeOauth: boolean;
 }
 
 export interface ProviderRow {
@@ -143,14 +171,24 @@ export async function listProviderRows(
         ...(found ? {} : { hint: "No Codex login or OPENAI_API_KEY found on the main daemon." }) });
       continue;
     }
+    if (e.provider === "claude") {
+      const chosen = CLAUDE_CREDENTIALS.find((id) => selected.includes(id));
+      const ref = chosen ?? CLAUDE_CREDENTIALS.find((id) => facts.available.has(id)) ?? "claude-token";
+      const found = facts.available.has(ref);
+      const hint = !found
+        ? "No Claude login, CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY found on the main daemon. Run `claude setup-token` and export CLAUDE_CODE_OAUTH_TOKEN, or log in with Claude Code."
+        : ref === "claude-login"
+          ? "Subscription login: it expires with its access token in pods. A long-lived token (`claude setup-token`, CLAUDE_CODE_OAUTH_TOKEN) is more robust."
+          : undefined;
+      rows.push({ id: ref, providerId: "claude", label, kind: "builtin", base: "claude", models, found, supported: true, needsUrls: [],
+        ...(hint ? { hint } : {}) });
+      continue;
+    }
     const credential = BUILTIN_CREDENTIAL[e.provider];
     if (credential) {
       const found = facts.available.has(credential);
-      const oauthOnly = e.provider === "claude" && !found && facts.claudeOauth;
       rows.push({ id: credential, providerId: e.provider, label, kind: "builtin", base: e.provider, models, found, supported: true, needsUrls: [],
-        ...(found ? {} : { hint: oauthOnly
-          ? "Only a Claude subscription login was found. It cannot be copied to pods; set ANTHROPIC_API_KEY on the main daemon."
-          : "No ANTHROPIC_API_KEY found on the main daemon." }) });
+        ...(found ? {} : { hint: "No API key found on the main daemon." }) });
       continue;
     }
     rows.push({ id: e.provider, providerId: e.provider, label, kind: "builtin", base: e.provider, models, found: false, supported: false, needsUrls: [],
@@ -174,6 +212,13 @@ export async function listProviderRows(
         found = false;
         hint = "The profile's CODEX_HOME has no readable auth.json on the main daemon.";
       }
+    } else if (a.claudeConfigDir && !a.ownClaudeAuth) {
+      try {
+        await readClaudeLogin(a.claudeConfigDir, "access-only", read);
+      } catch {
+        found = false;
+        hint = "The profile's CLAUDE_CONFIG_DIR has no readable Claude login on the main daemon.";
+      }
     }
     rows.push({
       id: profileRefOf(id),
@@ -194,6 +239,8 @@ export async function listProviderRows(
 export interface ProfilePayloadEntry {
   provider: ProfileDefinition;
   codexAuth?: string;
+  // {"claudeAiOauth": ...} read from the profile's CLAUDE_CONFIG_DIR.
+  claudeAuth?: string;
 }
 export interface ProfilePayload {
   profiles: Record<string, ProfilePayloadEntry>;
@@ -210,6 +257,7 @@ export async function buildProfilePayload(
   selected: string[],
   urls: Record<string, string>,
   codexMode: "access-only" | "refreshing",
+  claudeMode: "access-only" | "refreshing" = "access-only",
   src: ProfileSources = {},
 ): Promise<ProfilePayload> {
   const read = src.readFile ?? ((p: string) => readFile(p, "utf8"));
@@ -252,19 +300,26 @@ export async function buildProfilePayload(
       // The pod bootstrap points CODEX_HOME at a pod-local directory; never leak the local path.
       delete env.CODEX_HOME;
     }
+    let claudeAuth: string | undefined;
+    if (a.claudeConfigDir) {
+      // The pod bootstrap points CLAUDE_CONFIG_DIR at a pod-local directory; never leak the local path.
+      delete env.CLAUDE_CONFIG_DIR;
+      try {
+        claudeAuth = await readClaudeLogin(a.claudeConfigDir, claudeMode, read);
+      } catch {
+        if (!a.ownClaudeAuth) {
+          out.skipped.push({ id, reason: "The profile's CLAUDE_CONFIG_DIR has no readable Claude login." });
+          continue;
+        }
+      }
+    }
     if (Object.keys(env).length || "env" in definition) definition.env = env;
-    out.profiles[id] = { provider: definition, ...(codexAuth ? { codexAuth } : {}) };
+    out.profiles[id] = { provider: definition, ...(codexAuth ? { codexAuth } : {}), ...(claudeAuth ? { claudeAuth } : {}) };
     out.digests[id] = createHash("sha256").update(JSON.stringify(out.profiles[id])).digest("hex").slice(0, 16);
   }
   return out;
 }
 
-export async function credentialFacts(available: Set<string>, home = homedir()): Promise<CredentialFacts> {
-  let claudeOauth = false;
-  try {
-    claudeOauth = (await stat(join(home, ".claude", ".credentials.json"))).isFile();
-  } catch {
-    /* none */
-  }
-  return { available, claudeOauth };
+export async function credentialFacts(available: Set<string>): Promise<CredentialFacts> {
+  return { available };
 }

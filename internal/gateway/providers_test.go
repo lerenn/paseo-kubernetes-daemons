@@ -24,6 +24,7 @@ type setOptions struct {
 	skipSet         bool
 	bootstrap       string
 	profiles        bool
+	claude          bool
 }
 
 func providerScheme(t *testing.T) *runtime.Scheme {
@@ -76,6 +77,23 @@ func providerObjects(o setOptions) []client.Object {
 			case *corev1.ConfigMap:
 				if v.Name == "set" {
 					v.Data["providers.json"] = `{"providers":["profile:codex-proxy","profile:other"],"mcps":[],"mcpEnv":{},"providerSnapshot":[],"providerControls":{}}`
+				}
+			}
+		}
+	}
+	if o.claude {
+		for _, obj := range objects {
+			switch v := obj.(type) {
+			case *corev1.Secret:
+				if v.Name == "set" {
+					v.Data["files.json"] = []byte(`{"config.toml":"","claude-credentials.json":"{\"claudeAiOauth\":{\"accessToken\":\"x\",\"refreshToken\":\"\"}}"}`)
+				}
+				if v.Name == "set-env" {
+					v.Data["CLAUDE_CODE_OAUTH_TOKEN"] = []byte("t")
+				}
+			case *corev1.ConfigMap:
+				if v.Name == "set" {
+					v.Data["providers.json"] = `{"providers":["claude-login","claude-token"],"mcps":[],"mcpEnv":{},"providerSnapshot":[],"providerControls":{}}`
 				}
 			}
 		}
@@ -337,5 +355,19 @@ func TestProfileSelectionListsFileAndProfiles(t *testing.T) {
 	}
 	if got := stringsAt(t, obj, "envKeys"); len(got) != 0 {
 		t.Fatalf("profile secrets must not become env vars: %v", got)
+	}
+}
+
+func TestClaudeLoginAndTokenAreListed(t *testing.T) {
+	p := providerFixture(t, setOptions{claude: true, bootstrap: `{"repository":{"url":"https://example.com/a/b"},"trustRepository":true}`})
+	obj, err := p.CreateWithRequirements(context.Background(), "a", Requirements{Provider: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(stringsAt(t, obj, "files"), ","); got != "claude-credentials.json" {
+		t.Fatalf("files %q", got)
+	}
+	if got := strings.Join(stringsAt(t, obj, "envKeys"), ","); got != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Fatalf("envKeys %q", got)
 	}
 }

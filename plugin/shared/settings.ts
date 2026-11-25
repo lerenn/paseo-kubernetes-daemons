@@ -15,11 +15,13 @@ export const bundleSchema = z.object({
   gatewayReady: z.boolean().default(false),
 });
 // Keep in step with plugin/package.json: releases publish paseo-workspace:<version>.
-export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.3.1";
+export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.3.2";
 export const providerId = z.enum([
   "codex-login",
   "openai-key",
   "anthropic-key",
+  "claude-login",
+  "claude-token",
   "gemini-key",
   "github-token",
 ]);
@@ -37,6 +39,8 @@ export const providersSchema = z.object({
   profileUrls: z.record(z.string(), z.string()).default({}),
   includeMcpOAuthFile: z.boolean().default(false),
   codexMode: z.enum(["access-only", "refreshing"]).default("access-only"),
+  // Same trade-off for the Claude subscription login (claude-login), see docs/setup.md.
+  claudeMode: z.enum(["access-only", "refreshing"]).default("access-only"),
   lastSync: z
     .object({ at: z.string(), version: z.string(), error: z.string().optional() })
     .nullable()

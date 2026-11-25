@@ -13,8 +13,9 @@ import tempfile
 import tomllib
 from urllib.parse import urlsplit
 
-ALLOWED_FILES = {'auth.json', 'config.toml', '.credentials.json', 'paseo-providers.json'}
+ALLOWED_FILES = {'auth.json', 'config.toml', '.credentials.json', 'paseo-providers.json', 'claude-credentials.json'}
 PROFILES_FILE = 'paseo-providers.json'
+CLAUDE_FILE = 'claude-credentials.json'
 PROFILE_ID = re.compile(r'[A-Za-z0-9_-]{1,64}')
 # Provider ids that pod daemons define themselves; a synced profile may never replace them.
 RESERVED_PROFILES = {'claude', 'codex', 'opencode', 'pi', 'copilot', 'gemini', 'muse', 'antigravity'}
@@ -99,6 +100,27 @@ def load_files(directory):
         if name != 'config.toml': json.loads(content)
     return files
 
+def write_claude_home(directory, content, same):
+    """Write a Claude subscription login ({"claudeAiOauth": ...}) into a Claude config directory.
+
+    Only the OAuth entry is accepted, so nothing else from the source file (such as MCP OAuth
+    caches) reaches the pod. The first-run flag keeps the CLI from prompting for onboarding."""
+    data = json.loads(content)
+    oauth = data.get('claudeAiOauth') if isinstance(data, dict) else None
+    if not isinstance(oauth, dict) or not isinstance(oauth.get('accessToken'), str) or not oauth['accessToken']:
+        raise ValueError('invalid Claude credentials')
+    for d in (directory.parent, directory):
+        if d.is_symlink() or (d.exists() and not d.is_dir()): raise ValueError('unsafe Claude config directory')
+        d.mkdir(mode=0o700, exist_ok=True)
+        d.chmod(0o700)
+    target = directory / '.credentials.json'
+    if target.is_symlink(): raise ValueError('unsafe credential destination')
+    # A pod-local copy may have refreshed itself; keep it while the synced set is unchanged.
+    if not same or not target.exists(): write_private(target, json.dumps({'claudeAiOauth': oauth}))
+    state = directory / '.claude.json'
+    if state.is_symlink(): raise ValueError('unsafe credential destination')
+    if not state.exists(): write_private(state, json.dumps({'hasCompletedOnboarding': True}))
+
 def apply_profiles(root, content, only, same):
     """Merge synced provider profiles into the pod daemon's own config.json (agents.providers).
 
@@ -115,6 +137,10 @@ def apply_profiles(root, content, only, same):
         if auth is not None:
             if not isinstance(auth, str): raise ValueError('invalid provider profile')
             json.loads(auth)
+        claude = entry.get('claudeAuth')
+        if claude is not None:
+            if not isinstance(claude, str): raise ValueError('invalid provider profile')
+            json.loads(claude)
         if only is None or pid in only: wanted[pid] = entry
     paseo = root / '.paseo'
     if paseo.is_symlink() or (paseo.exists() and not paseo.is_dir()): raise ValueError('unsafe Paseo home')
@@ -141,6 +167,11 @@ def apply_profiles(root, content, only, same):
             # A pod-local copy may have refreshed itself; keep it while the synced set is unchanged.
             if not same or not target.exists(): write_private(target, auth)
             definition['env'] = {**definition.get('env', {}), 'CODEX_HOME': str(home)}
+        claude = entry.get('claudeAuth')
+        if claude is not None:
+            home = root / '.claude-profiles' / pid
+            write_claude_home(home, claude, same)
+            definition['env'] = {**definition.get('env', {}), 'CLAUDE_CONFIG_DIR': str(home)}
         providers[pid] = definition
     write_private(config_path, json.dumps(config, indent=2))
     config_path.chmod(0o600)
@@ -187,11 +218,13 @@ def prepare(root, secret_dir, config_dir, profile, alias_root=None, providers=No
     config = json.loads((Path(config_dir) / 'bootstrap.json').read_text())
     if 'config.toml' not in files: raise ValueError('invalid credential bundle')
     profiles_file = None
+    claude_file = None
     if providers:
         files = merge_providers(files, load_files(providers_secret_dir), provider_files, provider_mcps)
         # Marker identity covers both objects so a new provider set refreshes pod copies.
         profile = profile + '+' + providers
         profiles_file = files.pop(PROFILES_FILE, None)
+        claude_file = files.pop(CLAUDE_FILE, None)
     settings = tomllib.loads(files['config.toml'])
     repo = config.get('repository')
     if repo and not config.get('trustRepository'): raise ValueError('repository has not been approved')
@@ -227,6 +260,15 @@ def prepare(root, secret_dir, config_dir, profile, alias_root=None, providers=No
             target.unlink(missing_ok=True)
     if providers:
         apply_profiles(root, profiles_file, provider_profiles, same)
+        # Default Claude config dir of the pod (HOME/.claude). A login that is no longer synced is removed.
+        claude_home = root / '.claude'
+        claude_marker = claude_home / '.k8s-credentials'
+        if claude_file is not None:
+            write_claude_home(claude_home, claude_file, same)
+            write_private(claude_marker, 'managed')
+        elif claude_marker.exists() and not claude_marker.is_symlink():
+            (claude_home / '.credentials.json').unlink(missing_ok=True)
+            claude_marker.unlink()
     for name, content in files.items():
         target = home / name
         if target.is_symlink(): raise ValueError('unsafe credential destination')

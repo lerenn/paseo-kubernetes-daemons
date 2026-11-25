@@ -302,14 +302,14 @@ export async function providersStatus(
     ? await listProviderRows(
         daemon.entries,
         daemon.providers,
-        await credentialFacts(available, o.claudeHome),
+        await credentialFacts(available),
         c.providers.selected,
         c.providers.profileUrls,
       )
     : [];
   // Current content hashes of the selected profiles, to tell "Synced" from "Out of date".
   const current = daemon
-    ? await buildProfilePayload(daemon.providers, c.providers.selected, c.providers.profileUrls, c.providers.codexMode).catch(
+    ? await buildProfilePayload(daemon.providers, c.providers.selected, c.providers.profileUrls, c.providers.codexMode, c.providers.claudeMode).catch(
         () => null,
       )
     : null;
@@ -354,6 +354,7 @@ export async function providersStatus(
     mcps,
     oauthFile: found?.oauthFile ?? false,
     codexMode: c.providers.codexMode,
+    claudeMode: c.providers.claudeMode,
     includeMcpOAuthFile: c.providers.includeMcpOAuthFile,
     lastSync: lastSync ?? null,
     set: set ? { name: set.name, providers: set.providers, mcps: set.mcps } : null,

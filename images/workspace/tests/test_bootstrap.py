@@ -190,4 +190,42 @@ class ProfilesTest(ProviderSetTest):
             self.profiles(**bad)
             with self.assertRaises(ValueError): self.prepare()
 
+class ClaudeLoginTest(ProfilesTest):
+    LOGIN = json.dumps({'claudeAiOauth': {'accessToken': 'AT', 'refreshToken': '', 'expiresAt': 1}, 'mcpOAuth': {'leak': 'LEAK'}})
+    def claude(self, *names): return self.workspace.joinpath('.claude', *names)
+    def test_builtin_login_written_privately_without_other_keys(self):
+        self.pfiles['claude-credentials.json'] = self.LOGIN; self.save()
+        self.prepare()
+        creds = self.claude('.credentials.json')
+        self.assertEqual(creds.stat().st_mode & 0o777, 0o600)
+        data = json.loads(creds.read_text())
+        self.assertEqual(set(data), {'claudeAiOauth'})
+        self.assertEqual(data['claudeAiOauth']['refreshToken'], '')
+        self.assertTrue(json.loads((self.workspace / '.claude' / '.claude.json').read_text())['hasCompletedOnboarding'])
+        self.assertFalse(self.codex('claude-credentials.json').exists())
+    def test_refreshed_pod_copy_kept_then_removed_when_unselected(self):
+        self.pfiles['claude-credentials.json'] = self.LOGIN; self.save()
+        self.prepare()
+        self.claude('.credentials.json').write_text('{"claudeAiOauth":{"accessToken":"R"}}')
+        self.prepare()
+        self.assertIn('"R"', self.claude('.credentials.json').read_text())
+        del self.pfiles['claude-credentials.json']; self.save()
+        self.prepare('profile-v2')
+        self.assertFalse(self.claude('.credentials.json').exists())
+    def test_file_subset_can_exclude_login(self):
+        self.pfiles['claude-credentials.json'] = self.LOGIN; self.save()
+        self.prepare(provider_files={'auth.json'})
+        self.assertFalse(self.claude('.credentials.json').exists())
+    def test_invalid_login_rejected(self):
+        self.pfiles['claude-credentials.json'] = '{"claudeAiOauth":{}}'; self.save()
+        with self.assertRaises(ValueError): self.prepare()
+    def test_profile_config_dir_gets_pod_local_login(self):
+        self.profiles(backup={'provider': {'extends': 'claude', 'env': {'X': '1'}}, 'claudeAuth': self.LOGIN})
+        self.prepare()
+        home = self.workspace / '.claude-profiles' / 'backup'
+        env = self.daemon_config()['agents']['providers']['backup']['env']
+        self.assertEqual(env['CLAUDE_CONFIG_DIR'], str(home))
+        self.assertEqual((home / '.credentials.json').stat().st_mode & 0o777, 0o600)
+        self.assertNotIn('LEAK', (home / '.credentials.json').read_text())
+
 if __name__ == '__main__': unittest.main()

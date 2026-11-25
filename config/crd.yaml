@@ -117,10 +117,10 @@ spec:
                             pattern: '^[A-Za-z_][A-Za-z0-9_]*$'
                         files:
                           type: array
-                          maxItems: 3
+                          maxItems: 4
                           items:
                             type: string
-                            enum: [auth.json, .credentials.json, paseo-providers.json]
+                            enum: [auth.json, .credentials.json, paseo-providers.json, claude-credentials.json]
                         profiles:
                           type: array
                           maxItems: 64
