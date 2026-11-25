@@ -135,3 +135,20 @@ func TestCatalogDefaultsMissingImage(t *testing.T) {
 		t.Fatalf("got %+v err %v", got, err)
 	}
 }
+
+func TestWaitReadyReportsPending(t *testing.T) {
+	p := fixture(t, true)
+	p.PendingGrace = time.Millisecond
+	ctx := context.Background()
+	obj, err := p.Create(ctx, "pending-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj.Object["status"] = map[string]interface{}{"phase": "Pending", "message": "Unschedulable: 0/3 nodes are available: Insufficient cpu"}
+	if err := p.Client.Update(ctx, obj); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.WaitReady(ctx, obj.GetName(), time.Millisecond); err == nil || !strings.Contains(err.Error(), "workspace pending: Unschedulable: 0/3 nodes are available: Insufficient cpu") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}

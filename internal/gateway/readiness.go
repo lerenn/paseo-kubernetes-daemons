@@ -11,6 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// DefaultPendingGrace is how long a Pending reason may persist before WaitReady reports it.
+const DefaultPendingGrace = 15 * time.Second
+
 // WaitReady waits for the controller to report a ready daemon. Cancellation
 // does not delete the workspace: the same request can safely be resumed.
 func (p *Provisioner) WaitReady(ctx context.Context, name string, interval time.Duration) (string, error) {
@@ -19,6 +22,11 @@ func (p *Provisioner) WaitReady(ctx context.Context, name string, interval time.
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	grace := p.PendingGrace
+	if grace == 0 {
+		grace = DefaultPendingGrace
+	}
+	start := time.Now()
 	for {
 		obj := &unstructured.Unstructured{}
 		obj.SetGroupVersionKind(controller.GVK)
@@ -39,6 +47,11 @@ func (p *Provisioner) WaitReady(ctx context.Context, name string, interval time.
 			return endpoint, nil
 		case "Failed":
 			return "", fmt.Errorf("workspace provisioning failed: %s", message)
+		case "Pending":
+			// Surface an actionable reason (quota, scheduling, storage) once it persists.
+			if controller.IsPendingReason(message) && time.Since(start) >= grace {
+				return "", fmt.Errorf("workspace pending: %s", message)
+			}
 		}
 		select {
 		case <-ctx.Done():

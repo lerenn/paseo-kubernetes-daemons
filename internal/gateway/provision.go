@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +33,8 @@ type Provisioner struct {
 	Docker         bool
 	Persistent     bool
 	MainConnection string
+	// PendingGrace overrides DefaultPendingGrace (negative reports immediately).
+	PendingGrace time.Duration
 }
 
 // Create is safe to retry after a timeout or gateway restart. An existing
