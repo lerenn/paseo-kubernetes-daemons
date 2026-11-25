@@ -2,13 +2,18 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"slices"
 	"strings"
 	"testing"
@@ -289,5 +294,82 @@ func TestDockerSidecarImage(t *testing.T) {
 		if got := pod.Spec.Containers[1]; got.Name != "docker" || got.Image != want {
 			t.Fatalf("got %s %s, want docker %s", got.Name, got.Image, want)
 		}
+	}
+}
+
+func pendingFixture(t *testing.T, funcs interceptor.Funcs) (*Reconciler, client.Client, ctrl.Request) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	w := object()
+	w.SetName("demo")
+	w.SetNamespace("test")
+	w.SetUID("workspace-uid")
+	w.Object["spec"] = map[string]interface{}{"image": "example/paseo:test", "storage": "10Gi", "resources": map[string]interface{}{}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(w, &corev1.Pod{}).WithObjects(w).WithInterceptorFuncs(funcs).Build()
+	return &Reconciler{Client: c, Namespace: "test"}, c, ctrl.Request{NamespacedName: types.NamespacedName{Name: "demo", Namespace: "test"}}
+}
+
+func workspaceStatus(t *testing.T, c client.Client, req ctrl.Request) map[string]interface{} {
+	got := object()
+	if err := c.Get(context.Background(), req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	status, _ := got.Object["status"].(map[string]interface{})
+	return status
+}
+
+func TestPendingReasons(t *testing.T) {
+	ctx := context.Background()
+	r, c, req := pendingFixture(t, interceptor.Funcs{})
+	for i := 0; i < 2; i++ {
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pod := &corev1.Pod{}
+	if err := c.Get(ctx, types.NamespacedName{Name: "pw-demo", Namespace: "test"}, pod); err != nil {
+		t.Fatal(err)
+	}
+	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionFalse, Reason: "Unschedulable", Message: "0/3 nodes are available:\n3 Insufficient cpu. " + strings.Repeat("x", 400)}}
+	if err := c.Status().Update(ctx, pod); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	status := workspaceStatus(t, c, req)
+	msg, _ := status["message"].(string)
+	if status["phase"] != "Pending" || !strings.HasPrefix(msg, "Unschedulable: 0/3 nodes are available: 3 Insufficient cpu.") || len(msg) > 200 || strings.Contains(msg, "\n") {
+		t.Fatalf("wrong pending status: %v", status)
+	}
+	// The message is cleared once the pod is ready.
+	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	if err := c.Status().Update(ctx, pod); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	status = workspaceStatus(t, c, req)
+	if status["phase"] != "Ready" || status["message"] != "" {
+		t.Fatalf("message not cleared: %v", status)
+	}
+}
+
+func TestQuotaRejectionMessage(t *testing.T) {
+	ctx := context.Background()
+	r, c, req := pendingFixture(t, interceptor.Funcs{Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+		if _, ok := obj.(*corev1.Pod); ok {
+			return apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "pw-demo", errors.New("exceeded quota: workspaces, requested: limits.cpu=2, used: limits.cpu=4, limited: limits.cpu=4"))
+		}
+		return cl.Create(ctx, obj, opts...)
+	}})
+	if _, err := r.Reconcile(ctx, req); err == nil {
+		t.Fatal("expected the rejection to be retried with an error")
+	}
+	status := workspaceStatus(t, c, req)
+	msg, _ := status["message"].(string)
+	if status["phase"] != "Pending" || !strings.HasPrefix(msg, "Quota exceeded: ") || !strings.Contains(msg, "limits.cpu") || len(msg) > 200 {
+		t.Fatalf("wrong quota status: %v", status)
 	}
 }

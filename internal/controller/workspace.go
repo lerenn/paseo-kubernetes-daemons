@@ -250,6 +250,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: req.Namespace}, existing)
 		if apierrors.IsNotFound(err) {
 			if err = r.Create(ctx, desired); err != nil {
+				if apierrors.IsForbidden(err) && strings.Contains(err.Error(), "quota") {
+					// Admission rejected the create; keep retrying but tell the user why.
+					r.recordPending(ctx, w, req.Namespace, name, QuotaPrefix+err.Error())
+				}
 				return ctrl.Result{}, err
 			}
 		} else if err != nil {
@@ -301,6 +305,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			message = fmt.Sprintf("container %s exited with code %d", state.Name, state.State.Terminated.ExitCode)
 		}
 	}
+	if phase == "Pending" && message == "" {
+		message = r.pendingReason(ctx, actual, req.Namespace, name)
+	}
 	status := map[string]interface{}{"message": message, "phase": phase, "endpoint": fmt.Sprintf("%s.%s.svc:6767", name, req.Namespace), "observedGeneration": w.GetGeneration(), "podUID": string(actual.UID)}
 	old := w.DeepCopy()
 	w.Object["status"] = status
@@ -316,3 +323,50 @@ func boolPtr(v bool) *bool { return &v }
 func GatewayRoot(name string) string { return "/__paseo_kubernetes/" + name + "/workspace" }
 
 func quantityPtr(value string) *resource.Quantity { q := resource.MustParse(value); return &q }
+
+// Prefixes of status.message while a workspace is Pending for a reason the user must act on.
+const (
+	QuotaPrefix         = "Quota exceeded: "
+	UnschedulablePrefix = "Unschedulable: "
+	StoragePrefix       = "Storage pending: "
+	maxMessage          = 200
+)
+
+// IsPendingReason reports whether a status message is one of the actionable Pending reasons.
+func IsPendingReason(message string) bool {
+	return strings.HasPrefix(message, QuotaPrefix) || strings.HasPrefix(message, UnschedulablePrefix) || strings.HasPrefix(message, StoragePrefix)
+}
+
+// shorten keeps a message on one line and bounded in length.
+func shorten(message string) string {
+	message = strings.Join(strings.Fields(message), " ")
+	if len(message) > maxMessage {
+		message = message[:maxMessage-3] + "..."
+	}
+	return message
+}
+
+// pendingReason explains why the pod is not yet running, using only the pod
+// condition and PVC phase (no extra RBAC).
+func (r *Reconciler) pendingReason(ctx context.Context, pod *corev1.Pod, namespace, name string) string {
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Message != "" {
+			if strings.Contains(c.Message, "PersistentVolumeClaim") || strings.Contains(c.Message, "persistentvolumeclaim") {
+				return shorten(StoragePrefix + c.Message)
+			}
+			return shorten(UnschedulablePrefix + c.Message)
+		}
+	}
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, pvc); err == nil && pvc.Status.Phase == corev1.ClaimPending && pod.Spec.NodeName == "" && len(pod.Status.Conditions) > 0 {
+		return StoragePrefix + "volume claim is not bound yet"
+	}
+	return ""
+}
+
+// recordPending best-effort sets Pending status with a message; errors are returned to the caller by the reconcile retry.
+func (r *Reconciler) recordPending(ctx context.Context, w *unstructured.Unstructured, namespace, name, message string) {
+	old := w.DeepCopy()
+	w.Object["status"] = map[string]interface{}{"message": shorten(message), "phase": "Pending", "endpoint": fmt.Sprintf("%s.%s.svc:6767", name, namespace), "observedGeneration": w.GetGeneration()}
+	_ = r.Status().Patch(ctx, w, client.MergeFrom(old))
+}
