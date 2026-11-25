@@ -32,6 +32,7 @@ import {
   providersSync,
   projectsList,
   projectsDiscover,
+  projectsDiscoverLocal,
   projectsAdd,
   projectsUpdate,
   projectsApprove,
@@ -47,6 +48,7 @@ import {
 } from "../shared/contracts.js";
 import type { z } from "zod";
 import { ProvidersTab, type ProvidersStatus } from "./providers-tab.js";
+import type { LocalRow } from "./view.js";
 import { ProjectsTab, type ProjectRow, type ProjectsActions } from "./projects-tab.js";
 import { PodsTab, type PodsStatus, type CheckPods } from "./pods-tab.js";
 import { applySynced, pendingReason, PENDING_HELP, plural } from "./view.js";
@@ -80,6 +82,7 @@ export function WorkspaceScreen({
     providersSyncRpc = useRpc(providersSync),
     listProjects = useRpc(projectsList),
     discoverProject = useRpc(projectsDiscover),
+    discoverLocalRpc = useRpc(projectsDiscoverLocal),
     addProject = useRpc(projectsAdd),
     updateProject = useRpc(projectsUpdate),
     approveProject = useRpc(projectsApprove),
@@ -107,6 +110,7 @@ export function WorkspaceScreen({
     useState<ProvidersStatus | null>(null);
   const [podsInfo, setPodsInfo] = useState<PodsStatus | null>(null);
   const [projectRows, setProjectRows] = useState<ProjectRow[] | null>(null);
+  const [localRows, setLocalRows] = useState<LocalRow[] | null>(null);
   const [name, setName] = useState(""),
     [rows, setRows] = useState<Environment[]>([]);
   const [tab, setTab] = useState<TabId>("overview");
@@ -230,6 +234,10 @@ export function WorkspaceScreen({
   };
   const loadProjects = async () => {
     setProjectRows((await listProjects({})).projects);
+    // The daemon's own project list is best effort: the tab works without it.
+    discoverLocalRpc({})
+      .then((r) => setLocalRows(r.candidates))
+      .catch(() => setLocalRows(null));
   };
   const loadPods = async () => {
     setPodsInfo(await podsStatusRpc({}));
@@ -811,6 +819,7 @@ export function WorkspaceScreen({
               theme={theme}
               text={text}
               projects={projectRows}
+              local={localRows}
               selectedProviders={draft.providers.selected}
               busy={busy}
               saved={saved}
