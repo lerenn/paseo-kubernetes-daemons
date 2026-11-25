@@ -136,6 +136,26 @@ spec:
                             type: string
                             minLength: 1
                             maxLength: 128
+                    plugins:
+                      type: array
+                      maxItems: 16
+                      items:
+                        type: object
+                        required: [source]
+                        properties:
+                          source:
+                            type: string
+                            minLength: 1
+                            maxLength: 300
+                            pattern: '^[^\s-][^\s]*$'
+                          ref:
+                            type: string
+                            maxLength: 250
+                            pattern: '^[A-Za-z0-9][A-Za-z0-9._/@+-]*$'
+                          configSecretName:
+                            type: string
+                            maxLength: 63
+                            pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                 command:
                   type: array
                   minItems: 1

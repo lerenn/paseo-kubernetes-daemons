@@ -78,6 +78,7 @@ export function Field({
   placeholder,
   hint,
   disabled = false,
+  secret = false,
 }: {
   theme: Theme;
   label: string;
@@ -86,6 +87,7 @@ export function Field({
   placeholder?: string;
   hint?: string;
   disabled?: boolean;
+  secret?: boolean;
 }) {
   const [focus, setFocus] = useState(false);
   return (
@@ -104,6 +106,7 @@ export function Field({
         value={value}
         onChangeText={onChange}
         editable={!disabled}
+        secureTextEntry={secret}
         placeholder={placeholder}
         placeholderTextColor={theme.colors.foregroundMuted}
         autoCapitalize="none"

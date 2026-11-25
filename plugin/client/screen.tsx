@@ -53,12 +53,15 @@ import { ProjectsTab, type ProjectRow, type ProjectsActions } from "./projects-t
 import { WorkspacesSection, type Environment } from "./workspaces-section.js";
 import { PodsTab, type PodsStatus, type CheckPods } from "./pods-tab.js";
 import { applySynced, plural } from "./view.js";
+import { PluginsTab, applyPluginResults } from "./plugins-tab.js";
+import { pluginsSync } from "../shared/contracts.js";
 const TABS = [
   { id: "overview", label: "Overview", icon: "Gauge" },
   { id: "cluster", label: "Cluster", icon: "Server" },
   { id: "providers", label: "Providers", icon: "KeyRound" },
   { id: "projects", label: "Projects", icon: "FolderGit2" },
   { id: "pods", label: "Pods", icon: "Cpu" },
+  { id: "plugins", label: "Plugins", icon: "Puzzle" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 export function WorkspaceScreen({
@@ -82,6 +85,7 @@ export function WorkspaceScreen({
     refreshCatalog = useRpc(projectsCatalog),
     podsStatusRpc = useRpc(podsStatus),
     podsCheckRpc = useRpc(podsCheck),
+    pluginsSyncRpc = useRpc(pluginsSync),
     create = useRpc(createEnvironment),
     list = useRpc(listEnvironments),
     release = useRpc(releaseEnvironment),
@@ -847,6 +851,28 @@ export function WorkspaceScreen({
               globalDocker={draft.docker}
               globalEphemeral={draft.ephemeral}
               checkPods={checkPods}
+            />
+          )}
+          {tab === "plugins" && (
+            <PluginsTab
+              theme={theme}
+              text={text}
+              value={draft.plugins}
+              busy={busy}
+              saved={saved}
+              connected={connected}
+              onChange={(next) => patch("plugins", next)}
+              onSave={() => void action(save)}
+              onSync={() =>
+                void action(async () => {
+                  const r = await pluginsSyncRpc({});
+                  const base = draftRef.current;
+                  await persist({ ...base, plugins: applyPluginResults(base.plugins, r.plugins) });
+                  if (r.catalog.error) setError(`Plugins synced, but the catalog was not updated: ${r.catalog.error}`);
+                  else if (r.plugins.some((p) => p.error)) setError("Some plugins could not be synced.");
+                  else toast.show("Plugins synced. New workspaces install them after the daemon starts.");
+                })
+              }
             />
           )}
           {tab === "pods" && (

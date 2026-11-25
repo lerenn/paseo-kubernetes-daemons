@@ -69,3 +69,27 @@ Credential profiles outlive individual environments; existing pods must not lose
 snapshots they reference. Old snapshot cleanup is explicit. OAuth grant refresh
 coordination across copies and keychain credential export remain unsupported.
 See [setup](setup.md) for the exact supported credential sources and limitations.
+
+## Plugins
+
+Pod daemons can get Paseo plugins (for example GitHub Proxy, Mail, Playbooks, Prompts) installed.
+Design and settings/UI side: [docs/design/plugins.md](design/plugins.md).
+
+- `spec.bootstrap.plugins[]` holds `{source, ref, configSecretName}`: a pinned source (`ref` is a
+  Git branch, tag or commit) and an optional Secret whose keys become environment variables.
+- `paseo plugin install` connects to a running daemon (verified in `@getpaseo/cli` 0.16.2), so it
+  cannot run in the init container. When plugins are configured the operator wraps the daemon
+  command in `install-plugins.py`: it starts the daemon as a child (signals are forwarded, its exit
+  code is returned), waits until `paseo plugin ls --json` answers, then installs each plugin.
+- `$PASEO_HOME/.k8s-plugins` (0600) records the installed `{source, ref}` pairs. A pod restart
+  with an unchanged list installs nothing; a changed or new pin is installed. Failed installs are
+  retried on the next start and never stop the daemon. Install output is never logged, only
+  `Plugin N/M installed|failed|already installed`.
+- Config Secrets are exposed through `envFrom` of the daemon container only (plugins run inside the
+  daemon and read their configuration from its environment). They are not mounted in the init
+  container. With several Secrets, a key defined twice takes the last one.
+- Plugins removed from the list stay installed on that pod (no uninstall); a fresh pod will not have them.
+- The CR spec is immutable for the gateway, so plugin changes apply to workspaces created afterwards.
+- Release implications: the workspace image must contain `install-plugins.py`, and the CRD must be
+  re-applied; with an old CRD the gateway deletes the new CR and reports "CRD out of date" instead
+  of starting a pod without its plugins.

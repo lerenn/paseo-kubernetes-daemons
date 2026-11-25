@@ -373,3 +373,51 @@ func TestQuotaRejectionMessage(t *testing.T) {
 		t.Fatalf("wrong quota status: %v", status)
 	}
 }
+
+func TestPluginsWrapDaemonCommand(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	w := object()
+	w.SetName("demo")
+	w.SetNamespace("test")
+	w.SetUID("uid")
+	w.Object["spec"] = map[string]interface{}{"image": "example/paseo:test", "storage": "4Gi", "ephemeral": true, "bootstrap": map[string]interface{}{"secretName": "profile", "configMapName": "profile", "envSecretName": "profile-env",
+		"plugins": []interface{}{map[string]interface{}{"source": "github:a/b", "ref": "v1", "configSecretName": "pw-plugin-x"}, map[string]interface{}{"source": "github:c/d"}}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(w, &corev1.Pod{}).WithObjects(w).Build()
+	r := &Reconciler{Client: c, Namespace: "test"}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "demo", Namespace: "test"}}); err != nil {
+		t.Fatal(err)
+	}
+	pod := &corev1.Pod{}
+	if err := c.Get(ctx, types.NamespacedName{Name: "pw-demo", Namespace: "test"}, pod); err != nil {
+		t.Fatal(err)
+	}
+	cmd := pod.Spec.Containers[0].Command
+	want := []string{"python3", "/usr/local/lib/paseo-workspace/install-plugins.py", "--plugins", `[{"source":"github:a/b","ref":"v1"},{"source":"github:c/d"}]`, "--", "paseo", "daemon", "run"}
+	if !slices.Equal(cmd, want) {
+		t.Fatalf("command %v", cmd)
+	}
+	has := func(from []corev1.EnvFromSource) bool {
+		for _, e := range from {
+			if e.SecretRef != nil && e.SecretRef.Name == "pw-plugin-x" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(pod.Spec.Containers[0].EnvFrom) || has(pod.Spec.InitContainers[0].EnvFrom) {
+		t.Fatal("plugin config must reach the daemon container only")
+	}
+}
+
+func TestInvalidPluginsAreRejected(t *testing.T) {
+	for _, p := range []PluginRef{{Source: ""}, {Source: "-x"}, {Source: "a b"}, {Source: "a", Ref: "-x"}, {Source: "a", ConfigSecretName: "Bad_Name"}} {
+		if ValidatePlugins([]PluginRef{p}) == nil {
+			t.Fatalf("accepted %+v", p)
+		}
+	}
+	if ValidatePlugins(make([]PluginRef, 17)) == nil {
+		t.Fatal("accepted too many plugins")
+	}
+}

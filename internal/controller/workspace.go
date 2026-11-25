@@ -12,11 +12,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"regexp"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"strings"
 	"time"
+	"unicode"
 )
 
 var GVK = schema.GroupVersionKind{Group: "workspaces.paseo.sh", Version: "v1alpha1", Kind: "PaseoWorkspace"}
@@ -29,6 +31,42 @@ type Bootstrap struct {
 	EnvSecretName string `json:"envSecretName"`
 	// Providers optionally references a shared, immutable provider set. Nil keeps the legacy single-profile path.
 	Providers *ProviderRefs `json:"providers,omitempty"`
+	// Plugins are installed into the pod daemon after it starts (see images/workspace/install-plugins.py).
+	Plugins []PluginRef `json:"plugins,omitempty"`
+}
+
+// PluginRef is one pinned Paseo plugin to install in the pod daemon.
+type PluginRef struct {
+	Source string `json:"source"`
+	Ref    string `json:"ref,omitempty"`
+	// ConfigSecretName is exposed as environment variables of the daemon container only.
+	ConfigSecretName string `json:"configSecretName,omitempty"`
+}
+
+const maxPlugins = 16
+
+var (
+	pluginRefPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]*$`)
+	pluginSecretPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+)
+
+// ValidatePlugins checks plugin entries; it never echoes their values.
+func ValidatePlugins(plugins []PluginRef) error {
+	if len(plugins) > maxPlugins {
+		return fmt.Errorf("at most %d plugins are supported", maxPlugins)
+	}
+	for i, p := range plugins {
+		if p.Source == "" || len(p.Source) > 300 || strings.HasPrefix(p.Source, "-") || strings.IndexFunc(p.Source, unicode.IsSpace) >= 0 {
+			return fmt.Errorf("invalid plugin %d source", i+1)
+		}
+		if p.Ref != "" && (len(p.Ref) > 250 || !pluginRefPattern.MatchString(p.Ref)) {
+			return fmt.Errorf("invalid plugin %d ref", i+1)
+		}
+		if p.ConfigSecretName != "" && (len(p.ConfigSecretName) > 63 || !pluginSecretPattern.MatchString(p.ConfigSecretName)) {
+			return fmt.Errorf("invalid plugin %d config secret name", i+1)
+		}
+	}
+	return nil
 }
 
 // ProviderRefs names a provider set and the subset of it this workspace may read.
@@ -190,6 +228,27 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			Command: initCommand,
 			Env:     pod.Spec.Containers[0].Env, EnvFrom: pod.Spec.Containers[0].EnvFrom, Resources: s.Resources, SecurityContext: container.SecurityContext,
 			VolumeMounts: initMounts}}
+	}
+	if s.Bootstrap != nil && len(s.Bootstrap.Plugins) > 0 {
+		if err := ValidatePlugins(s.Bootstrap.Plugins); err != nil {
+			return ctrl.Result{}, err
+		}
+		// `paseo plugin install` needs a running daemon, so a wrapper installs after start. Plugin
+		// config Secrets reach the daemon container only, never the bootstrap init container.
+		type entry struct {
+			Source string `json:"source"`
+			Ref    string `json:"ref,omitempty"`
+		}
+		entries := []entry{}
+		daemon := &pod.Spec.Containers[0]
+		for _, p := range s.Bootstrap.Plugins {
+			entries = append(entries, entry{p.Source, p.Ref})
+			if p.ConfigSecretName != "" {
+				daemon.EnvFrom = append(daemon.EnvFrom, corev1.EnvFromSource{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: p.ConfigSecretName}}})
+			}
+		}
+		encoded, _ := json.Marshal(entries)
+		daemon.Command = append([]string{"python3", "/usr/local/lib/paseo-workspace/install-plugins.py", "--plugins", string(encoded), "--"}, cmd...)
 	}
 	if s.Docker != nil && s.Docker.Enabled {
 		// Use a Unix socket only: the stock entrypoint otherwise also opens TCP.

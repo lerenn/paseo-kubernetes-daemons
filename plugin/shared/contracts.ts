@@ -1,7 +1,7 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import { podsOverrideSchema, podsSchema } from "./pods.js";
-import { bundleSchema, projectSchema, providerRef, providersSchema } from "./settings.js";
+import { bundleSchema, pluginEnv, pluginRef, pluginSchema, pluginSource, projectSchema, providerRef, providersSchema } from "./settings.js";
 export const nameSchema = z
   .string()
   .max(50)
@@ -380,5 +380,64 @@ export const podsCheck = defineRpc({
     perPod: podsEstimate,
     // Pods the namespace quota admits; null when unconstrained or unreadable.
     fit: z.number().nullable(),
+  }),
+});
+
+// ---- Plugins installed in every pod daemon ----
+// Only user-added entries; env values are secrets and never leave the settings except into a Secret.
+// Mutating RPCs return the next `plugins` value for the client to save; plugins.sync returns the
+// `synced` values to store (save settings first, then sync, then save the results).
+const pluginIdentity = { source: pluginSource, ref: pluginRef.default("") };
+const pluginSynced = z.object({ digest: z.string(), secret: z.string().optional(), at: z.string() });
+export const pluginsStatus = defineRpc({
+  name: "plugins.status",
+  input: z.object({}),
+  output: z.object({
+    plugins: z.array(
+      z.object({
+        source: z.string(),
+        ref: z.string(),
+        enabled: z.boolean(),
+        envKeys: z.array(z.string()),
+        state: z.enum(["synced", "out-of-date", "not-synced"]),
+        synced: z.object({ at: z.string(), secret: z.string().optional() }).nullable(),
+      }),
+    ),
+  }),
+});
+export const pluginsAdd = defineRpc({
+  name: "plugins.add",
+  input: z.object({ ...pluginIdentity, env: pluginEnv.optional() }),
+  output: z.object({ plugin: pluginSchema, plugins: z.array(pluginSchema) }),
+});
+export const pluginsUpdate = defineRpc({
+  name: "plugins.update",
+  input: z.object({
+    ...pluginIdentity,
+    newRef: pluginRef.optional(),
+    enabled: z.boolean().optional(),
+    env: pluginEnv.optional(),
+  }),
+  output: z.object({ plugin: pluginSchema, plugins: z.array(pluginSchema) }),
+});
+export const pluginsRemove = defineRpc({
+  name: "plugins.remove",
+  input: z.object(pluginIdentity),
+  output: z.object({ plugins: z.array(pluginSchema) }),
+});
+export const pluginsSync = defineRpc({
+  name: "plugins.sync",
+  input: z.object({}),
+  output: z.object({
+    plugins: z.array(
+      z.object({
+        source: z.string(),
+        ref: z.string(),
+        synced: pluginSynced.nullable(),
+        skipped: z.enum(["disabled"]).optional(),
+        error: z.string().optional(),
+      }),
+    ),
+    catalog: catalogResult,
   }),
 });
