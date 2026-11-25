@@ -116,9 +116,10 @@ authentication and Service/network policy for your deployment.
 
 ## Providers and projects
 
-The panel has six tabs: **Overview**, **Cluster**, **Providers**, **Projects**, **Pods** and
-**Workspaces**. Overview lists the setup steps (cluster, providers, projects) with
-buttons that jump to each tab. Providers are chosen once and shared; each project
+The panel has five tabs: **Overview**, **Cluster**, **Providers**, **Projects** and
+**Pods**. Overview lists the setup steps (cluster, providers, projects) with
+buttons that jump to each tab, then the **Workspaces** section: create, open and
+release workspaces there. Providers are chosen once and shared; each project
 adds only its repository settings.
 
 ### Providers tab
@@ -197,7 +198,7 @@ storage classes needs the optional cluster-scoped read (`pluginRole.clusterReadE
 Storage caveats: a volume cannot shrink, growing one is manual and needs a class with
 expansion, and ephemeral workspaces ignore the class.
 
-A workspace that cannot start shows **Pending** with the reason in the Workspaces tab
+A workspace that cannot start shows **Pending** with the reason in the Workspaces section of the Overview tab
 (for example "Insufficient cpu" or "Quota exceeded: ..."). A full namespace quota
 rejects the pod and is retried; a node-capacity shortfall leaves it Pending.
 
