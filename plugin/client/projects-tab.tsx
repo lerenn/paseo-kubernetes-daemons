@@ -3,6 +3,8 @@ import { Text, View } from "react-native";
 import type { z } from "zod";
 import { Badge, Button, Card, Choice, Disclosure, Field, type Theme } from "./components.js";
 import type { projectsDiscover, projectsList, projectsUpdate } from "../shared/contracts.js";
+import { ProjectPodSettings, type CheckPods } from "./pods-tab.js";
+import type { Pods, PodsOverride } from "../shared/pods.js";
 import {
   plural,
   projectName,
@@ -36,6 +38,10 @@ export interface ProjectsActions {
 const tri = (v: boolean | undefined) => (v === undefined ? "default" : v ? "on" : "off");
 
 function Edit(props: {
+  podsGlobal: Pods;
+  globalDocker: boolean;
+  globalEphemeral: boolean;
+  checkPods?: CheckPods;
   theme: Theme;
   text: object;
   row: ProjectRow;
@@ -52,6 +58,7 @@ function Edit(props: {
   const [image, setImage] = useState(row.overrides.image ?? "");
   const [docker, setDocker] = useState<boolean | undefined>(row.overrides.docker);
   const [ephemeral, setEphemeral] = useState<boolean | undefined>(row.overrides.ephemeral);
+  const [podsOverride, setPodsOverride] = useState<PodsOverride | undefined>(row.overrides.pods);
   const triButtons = (value: boolean | undefined, set: (v: boolean | undefined) => void) => (
     <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
       {([["default", undefined], ["on", true], ["off", false]] as const).map(([label, v]) => (
@@ -141,6 +148,19 @@ function Edit(props: {
       {triButtons(docker, setDocker)}
       <Text style={label}>Ephemeral storage</Text>
       {triButtons(ephemeral, setEphemeral)}
+      <Disclosure theme={theme} title="Pod settings" label="Pod settings" summary={podsOverride ? "Overridden" : "Using global defaults"}>
+        <ProjectPodSettings
+          theme={theme}
+          text={text}
+          global={props.podsGlobal}
+          value={row.overrides.pods}
+          docker={docker ?? props.globalDocker}
+          ephemeral={ephemeral ?? props.globalEphemeral}
+          busy={busy}
+          {...(props.checkPods ? { check: props.checkPods } : {})}
+          onChange={setPodsOverride}
+        />
+      </Disclosure>
       <View style={{ alignSelf: "flex-start" }}>
         <Button
           theme={theme}
@@ -158,6 +178,7 @@ function Edit(props: {
                 image: image.trim() === "" ? null : image.trim(),
                 docker: docker ?? null,
                 ephemeral: ephemeral ?? null,
+                pods: podsOverride ?? null,
               },
             })
           }
@@ -176,6 +197,10 @@ export function ProjectsTab(props: {
   saved: boolean;
   connected: boolean;
   actions: ProjectsActions;
+  podsGlobal: Pods;
+  globalDocker: boolean;
+  globalEphemeral: boolean;
+  checkPods?: CheckPods;
 }) {
   const { theme, text, busy, actions, projects } = props;
   const [mode, setMode] = useState<"url" | "path">("url");
@@ -336,7 +361,7 @@ export function ProjectsTab(props: {
               </View>
             )}
             <Disclosure theme={theme} label="Edit project" summary="Revision, providers, MCPs & overrides">
-              <Edit theme={theme} text={text} row={row} selectedProviders={props.selectedProviders} busy={!writable} actions={actions} />
+              <Edit podsGlobal={props.podsGlobal} globalDocker={props.globalDocker} globalEphemeral={props.globalEphemeral} {...(props.checkPods ? { checkPods: props.checkPods } : {})} theme={theme} text={text} row={row} selectedProviders={props.selectedProviders} busy={!writable} actions={actions} />
             </Disclosure>
           </View>
         );
