@@ -30,14 +30,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Chart CRD matches config/crd.yaml
         run: diff config/crd.yaml charts/paseo-workspaces/crds/paseoworkspaces.yaml
-      - name: Chart and plugin versions match
-        run: |
-          plugin=$(sed -n 's/.*"version": "\(.*\)",/\1/p' plugin/package.json | head -1)
-          grep -qx "version: $plugin" charts/paseo-workspaces/Chart.yaml
-          grep -qx "appVersion: \"$plugin\"" charts/paseo-workspaces/Chart.yaml
       - name: Lint and render the chart
         run: |
           for args in "" "--set gateway.enabled=true --set gateway.tls.secretName=x --set quota.enabled=true --set networkPolicy.enabled=true --set workspacePullSecret=x"; do
             docker run --rm -v "$PWD/charts:/c" alpine/helm:3 lint /c/paseo-workspaces $args
             docker run --rm -v "$PWD/charts:/c" alpine/helm:3 template pw /c/paseo-workspaces -n paseo-workspaces $args > /dev/null
           done
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Versions aligned (package.json, lock, Chart.yaml, DEFAULT_WORKSPACE_IMAGE); a bump must exceed the latest tag
+        run: node .github/scripts/check-version.mjs "${{ github.event.pull_request.base.sha || 'HEAD' }}"
