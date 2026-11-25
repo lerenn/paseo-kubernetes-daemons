@@ -1,10 +1,10 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import type { z } from "zod";
 import { Badge, Button, Card, Choice, Disclosure, Field, type Theme } from "./components.js";
 import type { providersStatus } from "../shared/contracts.js";
 import type { Configuration } from "../shared/settings.js";
-import { providerLabel, rowStateBadge } from "./view.js";
+import { plural, providerLabel, rowStateBadge } from "./view.js";
 
 export type ProvidersStatus = z.output<typeof providersStatus.output>;
 type ProvidersConfig = Configuration["providers"];
@@ -31,6 +31,7 @@ export function ProvidersTab(props: {
   onSync: () => void;
 }) {
   const { theme, text, value, status, busy, saved, connected } = props;
+  const [query, setQuery] = useState("");
   const set = (patch: Partial<ProvidersConfig>) => props.onChange({ ...value, ...patch });
   const toggle = (list: string[], id: string, on: boolean) =>
     on ? [...new Set([...list, id])] : list.filter((x) => x !== id);
@@ -42,6 +43,10 @@ export function ProvidersTab(props: {
     set({ selected });
   };
   const lastSync = value.lastSync;
+  const q = query.trim().toLowerCase();
+  const visible = (status?.providers ?? []).filter(
+    (p) => !q || `${p.label} ${p.providerId} ${p.base}`.toLowerCase().includes(q),
+  );
   const codex = value.selected.includes("codex-login");
   const heading = {
     ...(text as object),
@@ -117,15 +122,43 @@ export function ProvidersTab(props: {
       {status && (
         <View style={{ gap: 12 }}>
           <Text style={heading}>Providers</Text>
-          {status.providers.map((p) =>
-            row(p.id, providerLabel(p.id, p.label), {
-              found: p.found,
-              selected: p.selected,
-              state: p.state,
-              description: HINTS[p.id],
-              onChange: (on) => chooseProvider(p.id, on),
-              extra:
-                p.id === "codex-login" && p.selected ? (
+          {status.daemonError && (
+            <Text style={{ ...(text as object), color: theme.colors.statusWarning }}>{status.daemonError}</Text>
+          )}
+          <Field theme={theme} label="Search providers" value={query} onChange={setQuery} placeholder="Search" />
+          {visible.map((p) => {
+            const badge = rowStateBadge(p.state);
+            const missingUrl = p.selected && p.needsUrls.some((u) => !u.override);
+            const description = [
+              p.models === null ? "" : plural(p.models, "model"),
+              p.kind === "profile" ? `Profile · extends ${p.base}` : "",
+              p.hint ?? (p.id === "codex-login" ? HINTS["codex-login"] : ""),
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <View key={p.id} style={{ gap: 4 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <View style={{ flex: 1, minWidth: 200 }}>
+                    <Choice
+                      theme={theme}
+                      label={p.label}
+                      description={description}
+                      checked={p.selected}
+                      onChange={(on) => chooseProvider(p.id, on)}
+                      disabled={busy || !p.supported || (!p.found && !p.selected)}
+                    />
+                  </View>
+                  {p.kind === "profile" && <Badge theme={theme} label="Profile" tone="muted" />}
+                  <Badge
+                    theme={theme}
+                    label={!p.supported ? "Unsupported" : p.found ? "Found" : "Missing"}
+                    tone={p.found && p.supported ? "success" : "muted"}
+                  />
+                  {missingUrl && <Badge theme={theme} label="Needs URL" tone="warning" />}
+                  {badge && <Badge theme={theme} label={badge.label} tone={badge.tone} />}
+                </View>
+                {p.id === "codex-login" && p.selected && (
                   <View style={{ paddingLeft: 30, gap: 4 }}>
                     <Text style={{ ...(text as object), color: theme.colors.statusWarning }}>
                       {value.codexMode === "access-only"
@@ -133,11 +166,45 @@ export function ProvidersTab(props: {
                         : "Refreshing: every pod gets the refresh token. Pods refresh independently and can invalidate each other's login."}
                     </Text>
                   </View>
-                ) : undefined,
-            }),
+                )}
+                {p.selected &&
+                  p.needsUrls.map((u) => (
+                    <View key={u.name} style={{ paddingLeft: 30 }}>
+                      <Field
+                        theme={theme}
+                        label={`Reachable URL for ${u.name} (now ${u.host})`}
+                        value={value.profileUrls[`${p.providerId}/${u.name}`] ?? ""}
+                        onChange={(v) => {
+                          const next = { ...value.profileUrls };
+                          if (v) next[`${p.providerId}/${u.name}`] = v;
+                          else delete next[`${p.providerId}/${u.name}`];
+                          set({ profileUrls: next });
+                        }}
+                        hint="Replace the loopback address with an endpoint reachable from pods."
+                        disabled={busy}
+                      />
+                    </View>
+                  ))}
+              </View>
+            );
+          })}
+          {!status.providers.length && !status.daemonError && (
+            <Text style={text}>The main daemon reports no providers.</Text>
           )}
-          {!status.providers.some((p) => p.found) && (
-            <Text style={text}>No reusable provider credentials found on the main host.</Text>
+          {status.providers.length > 0 && !visible.length && <Text style={text}>No provider matches “{query}”.</Text>}
+          {status.credentials.length > 0 && (
+            <View style={{ gap: 8, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 14 }}>
+              <Text style={heading}>Other credentials</Text>
+              {status.credentials.map((p) =>
+                row(p.id, providerLabel(p.id, p.label), {
+                  found: p.found,
+                  selected: p.selected,
+                  state: p.state,
+                  description: HINTS[p.id],
+                  onChange: (on) => chooseProvider(p.id, on),
+                }),
+              )}
+            </View>
           )}
           {status.mcps.length > 0 && (
             <View style={{ gap: 8, borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 14 }}>

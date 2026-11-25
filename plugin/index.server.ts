@@ -42,6 +42,7 @@ import {
   providersStatus as buildProvidersStatus,
 } from "./server/projects.js";
 import { podsStatus as buildPodsStatus, podsCheck as buildPodsCheck } from "./server/pods.js";
+import type { SnapshotEntryLike } from "./server/daemon-providers.js";
 import { discoverProject } from "./server/credentials.js";
 
 export default function contribute(server: PluginServerContext) {
@@ -71,7 +72,8 @@ export default function contribute(server: PluginServerContext) {
       providerContext: async (selection) => {
         const snapshot = await paseo.providers.waitForReady({});
         const controls = await captureControls(paseo, snapshot, selection.providers, process.cwd());
-        return { snapshot, controls };
+        const daemonProviders = (await paseo.config.get()).config.providers ?? {};
+        return { snapshot, controls, daemonProviders };
       },
     };
   }
@@ -93,9 +95,17 @@ export default function contribute(server: PluginServerContext) {
     };
   });
   const serverId = async (paseo: PaseoApi) => (await paseo.hosts.list()).self.serverId;
-  server.handle(providersStatus, async () => {
+  server.handle(providersStatus, async (_, { paseo }) => {
     const c = await configuration();
-    return buildProvidersStatus(c, connection(c));
+    let daemon: { entries: SnapshotEntryLike[]; providers: Record<string, unknown> } | null = null;
+    let daemonError: string | undefined;
+    try {
+      const [snapshot, config] = await Promise.all([paseo.providers.snapshot(), paseo.config.get()]);
+      daemon = { entries: snapshot.entries, providers: config.config.providers ?? {} };
+    } catch {
+      daemonError = "The main daemon's provider list could not be read.";
+    }
+    return buildProvidersStatus(c, connection(c), {}, daemon, daemonError);
   });
   server.handle(providersSync, async (_, { paseo }) => {
     const c = await configuration();

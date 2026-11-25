@@ -1,7 +1,7 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import { podsOverrideSchema, podsSchema } from "./pods.js";
-import { bundleSchema, projectSchema, providerId, providersSchema } from "./settings.js";
+import { bundleSchema, projectSchema, providerRef, providersSchema } from "./settings.js";
 export const nameSchema = z
   .string()
   .max(50)
@@ -139,7 +139,26 @@ export const providersStatus = defineRpc({
   name: "providers.status",
   input: z.object({}),
   output: z.object({
+    // The main daemon's providers as the new-conversation picker lists them: built-ins and profiles.
+    // Never carries env values, URLs with credentials or API keys.
     providers: z.array(
+      z.object({
+        id: z.string(),
+        providerId: z.string(),
+        label: z.string(),
+        kind: z.enum(["builtin", "profile"]),
+        base: z.string(),
+        models: z.number().nullable(),
+        found: z.boolean(),
+        supported: z.boolean(),
+        hint: z.string().optional(),
+        needsUrls: z.array(z.object({ name: z.string(), host: z.string(), override: z.string() })),
+        selected: z.boolean(),
+        state: rowState,
+      }),
+    ),
+    // Other credentials (extra API keys, GitHub token) that no provider row represents.
+    credentials: z.array(
       z.object({
         id: z.string(),
         label: z.string(),
@@ -148,6 +167,7 @@ export const providersStatus = defineRpc({
         state: rowState,
       }),
     ),
+    daemonError: z.string().optional(),
     mcps: z.array(
       z.object({
         name: z.string(),
@@ -174,6 +194,8 @@ export const providersSync = defineRpc({
   name: "providers.sync",
   input: z.object({}),
   output: z.object({
+    // Selected profiles that could not be exported (the sync still succeeded).
+    skippedProfiles: z.array(z.object({ id: z.string(), reason: z.string() })).default([]),
     providerSet: z.object({
       name: z.string(),
       providers: z.array(z.string()),
@@ -198,7 +220,7 @@ export const projectsList = defineRpc({
         path: z.string().nullable(),
         trusted: z.boolean(),
         revision: z.string(),
-        providerSubset: z.array(providerId).nullable(),
+        providerSubset: z.array(providerRef).nullable(),
         providers: z.object({ used: z.number(), total: z.number() }),
         projectMcps: z.array(z.string()),
         overrides: projectSchema.shape.overrides,
@@ -247,7 +269,7 @@ export const projectsUpdate = defineRpc({
   input: z.object({
     id: z.string(),
     revision: z.string().max(250).optional(),
-    providerSubset: z.array(providerId).nullable().optional(),
+    providerSubset: z.array(providerRef).nullable().optional(),
     projectMcps: z.array(z.string().min(1).max(200)).max(100).optional(),
     path: z.string().max(4096).nullable().optional(),
     overrides: z

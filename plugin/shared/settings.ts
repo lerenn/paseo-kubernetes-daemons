@@ -15,7 +15,7 @@ export const bundleSchema = z.object({
   gatewayReady: z.boolean().default(false),
 });
 // Keep in step with plugin/package.json: releases publish paseo-workspace:<version>.
-export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.3.0";
+export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.3.1";
 export const providerId = z.enum([
   "codex-login",
   "openai-key",
@@ -23,12 +23,18 @@ export const providerId = z.enum([
   "gemini-key",
   "github-token",
 ]);
+// A selectable provider: a credential id, or "profile:<id>" for a user-defined provider profile
+// (a custom provider of the main daemon that extends a built-in one).
+export const profileRef = z.string().regex(/^profile:[A-Za-z0-9_-]{1,64}$/);
+export const providerRef = z.union([providerId, profileRef]);
 // Provider selection shared by every project (design: docs/design/projects-tab.md section 1).
 // No credential values are stored; they are re-read from the main daemon at each sync.
 export const providersSchema = z.object({
-  selected: z.array(providerId).max(5).default([]),
+  selected: z.array(providerRef).max(40).default([]),
   mcps: z.array(z.string().min(1).max(200)).max(100).default([]),
   mcpUrls: z.record(z.string(), z.string()).default({}),
+  // Reachable replacements for loopback URLs in profile env, keyed "<profile id>/<ENV NAME>".
+  profileUrls: z.record(z.string(), z.string()).default({}),
   includeMcpOAuthFile: z.boolean().default(false),
   codexMode: z.enum(["access-only", "refreshing"]).default("access-only"),
   lastSync: z
@@ -43,7 +49,7 @@ export const projectSchema = z.object({
   path: z.string().max(4096).optional(),
   trusted: z.boolean().default(false),
   revision: z.string().max(250).default(""),
-  providerSubset: z.array(providerId).nullable().default(null),
+  providerSubset: z.array(providerRef).nullable().default(null),
   projectMcps: z.array(z.string().min(1).max(200)).max(100).default([]),
   overrides: z
     .object({

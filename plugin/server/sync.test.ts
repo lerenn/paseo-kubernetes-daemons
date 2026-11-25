@@ -265,7 +265,7 @@ test("status: found/selected/synced badges and out-of-date detection", async () 
     const k = cluster();
     const c = conf();
     const before = await providersStatus(c, k.run, f);
-    const row = (s: any, id: string) => s.providers.find((p: any) => p.id === id);
+    const row = (s: any, id: string) => [...s.providers, ...s.credentials].find((p: any) => p.id === id);
     assert.equal(row(before, "anthropic-key").found, true);
     assert.equal(row(before, "anthropic-key").state, "not-synced");
     assert.equal(row(before, "gemini-key").state, "none");
@@ -293,5 +293,56 @@ test("status: found/selected/synced badges and out-of-date detection", async () 
     // A newer provider set makes every project out of date.
     const newer = conf({ providers: { ...synced.providers, lastSync: { at: "t", version: "pw-providers-z" } }, projects: synced.projects });
     assert.equal((await projectsStatus(newer, "srv", k.run, f)).projects[0].state, "out-of-date");
+  } finally { await f.cleanup(); }
+});
+
+test("profiles: secrets go to the provider Secret only; status rows carry none; changes make a row out of date", async () => {
+  const f = await fixture();
+  try {
+    const k = cluster();
+    const daemonProviders: Record<string, unknown> = {
+      "codex-proxy": { extends: "codex", label: "Codex (Proxy)", env: { OPENAI_API_KEY: "PRIVATE_PROFILE_KEY", OPENAI_BASE_URL: "https://proxy.lab/v1" } },
+    };
+    const entries = [{ provider: "codex-proxy", label: "Codex (Proxy)", enabled: true, models: [{ id: "a" }, { id: "b" }] }];
+    const d: SyncDeps = {
+      ...deps(f, k),
+      providerContext: async () => ({ snapshot: { entries } as never, controls: {}, daemonProviders }),
+    };
+    const c = conf({ providers: { selected: ["profile:codex-proxy"] }, projects: [{ repository: repoA, trusted: true, providerSubset: ["profile:codex-proxy"] }] });
+    const out = await syncAllProviders(c, d);
+    assert.deepEqual(out.providerSet.providers, ["profile:codex-proxy"]);
+    assert.deepEqual(out.skippedProfiles, []);
+    const secret = k.writes.find((o) => o.kind === "Secret" && o.metadata.labels["workspaces.paseo.sh/kind"] === "providers" && !o.metadata.name.endsWith("-env"));
+    const files = JSON.parse(Buffer.from(secret.data["files.json"], "base64").toString());
+    assert.equal(files["paseo-providers.json"] && JSON.parse(files["paseo-providers.json"]).profiles["codex-proxy"].provider.env.OPENAI_API_KEY, "PRIVATE_PROFILE_KEY");
+    // Not in the env Secret and not in the ConfigMap (the gateway reads that one).
+    const envSecret = k.writes.find((o) => o.kind === "Secret" && o.metadata.name.endsWith("-env") && o.metadata.labels["workspaces.paseo.sh/kind"] === "providers");
+    assert.ok(!JSON.stringify(envSecret).includes(Buffer.from("PRIVATE_PROFILE_KEY").toString("base64")));
+    const cm = k.writes.find((o) => o.kind === "ConfigMap" && o.data["providers.json"]);
+    assert.ok(!JSON.stringify(cm).includes("PRIVATE_PROFILE_KEY"));
+    const synced = conf({ providers: { selected: ["profile:codex-proxy"], lastSync: out.lastSync }, projects: c.projects });
+    const status = (p: Record<string, unknown>) => providersStatus(synced, k.run, f, { entries, providers: p });
+    const row = async (p: Record<string, unknown>) => (await status(p)).providers.find((r) => r.id === "profile:codex-proxy")!;
+    const synced1 = await row(daemonProviders);
+    assert.equal(synced1.state, "synced");
+    assert.equal(synced1.models, 2);
+    assert.ok(!JSON.stringify(await status(daemonProviders)).includes("PRIVATE_PROFILE_KEY"));
+    // Rotating the key on the main daemon makes the row out of date.
+    const rotated = { "codex-proxy": { ...(daemonProviders["codex-proxy"] as object), env: { OPENAI_API_KEY: "NEW", OPENAI_BASE_URL: "https://proxy.lab/v1" } } };
+    assert.equal((await row(rotated)).state, "out-of-date");
+  } finally { await f.cleanup(); }
+});
+
+test("profiles: unresolved loopback URL fails the sync before anything is written", async () => {
+  const f = await fixture();
+  try {
+    const k = cluster();
+    const d: SyncDeps = {
+      ...deps(f, k),
+      providerContext: async () => ({ snapshot: { entries: [] } as never, controls: {}, daemonProviders: { x: { extends: "codex", env: { OPENAI_BASE_URL: "http://localhost:1/v1" } } } }),
+    };
+    const before = k.writes.length;
+    await assert.rejects(syncAllProviders(conf({ providers: { selected: ["profile:x"] } }), d), /loopback/);
+    assert.equal(k.writes.length, before);
   } finally { await f.cleanup(); }
 });

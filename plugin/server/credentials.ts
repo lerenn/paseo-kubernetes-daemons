@@ -8,6 +8,7 @@ import { parse, stringify } from "smol-toml";
 import type { z } from "zod";
 import type { PaseoProviderSnapshotResult } from "@getpaseo/client";
 import { providerProfile } from "./provider-profile.js";
+import { buildProfilePayload, profileIdOf, profileRefOf } from "./daemon-providers.js";
 import { syncSelection } from "../shared/contracts.js";
 import { scopeOf, type Configuration } from "../shared/settings.js";
 import { applyOwned, connection, type Kubectl } from "./kubernetes.js";
@@ -27,6 +28,8 @@ const labels = {
 type Mcp = Record<string, unknown>;
 export interface SourceOptions {
   home?: string;
+  // Test override for the Claude config directory's parent (default: the user's home).
+  claudeHome?: string;
   env?: NodeJS.ProcessEnv;
 }
 function codexHome(o: SourceOptions) {
@@ -295,8 +298,8 @@ export async function bundle(
     files["auth.json"] = raw;
   }
   for (const provider of selection.providers) {
-    if (provider === "codex-login") continue;
-    const key = providerEnv[provider];
+    if (provider === "codex-login" || profileIdOf(provider)) continue;
+    const key = providerEnv[provider as keyof typeof providerEnv];
     if (!env[key])
       throw new Error(
         `Selected credential ${key} is unavailable on the main daemon.`,
@@ -486,7 +489,9 @@ async function applyTriple(
   await applyOwned(run, config, owner);
 }
 export interface ProviderSelection {
-  providers: z.output<typeof syncSelection>["providers"];
+  // Credential ids and "profile:<id>" provider profiles.
+  providers: string[];
+  profileUrls?: Record<string, string>;
   mcps: string[];
   mcpUrls: Record<string, string>;
   includeMcpOAuthFile: boolean;
@@ -500,6 +505,9 @@ export async function syncProviders(
   o: SourceOptions = {},
   snapshot?: PaseoProviderSnapshotResult,
   controls: Record<string, unknown> = {},
+  // Raw `providers` record of the main daemon config. Holds secrets: it never leaves this function
+  // except inside the provider Secret.
+  daemonProviders: Record<string, unknown> = {},
 ) {
   const s = await sources("", o);
   const env = o.env ?? process.env;
@@ -523,14 +531,24 @@ export async function syncProviders(
     }
   }
   for (const provider of selection.providers) {
-    if (provider === "codex-login") continue;
-    const key = providerEnv[provider];
+    if (provider === "codex-login" || profileIdOf(provider)) continue;
+    const key = providerEnv[provider as keyof typeof providerEnv];
     if (!env[key])
       throw new Error(
         `Selected credential ${key} is unavailable on the main daemon.`,
       );
     vars[key] = env[key]!;
   }
+  const exported = await buildProfilePayload(
+    daemonProviders,
+    selection.providers,
+    selection.profileUrls ?? {},
+    selection.codexMode,
+  );
+  const skipped = new Set(exported.skipped.map((x) => profileRefOf(x.id)));
+  selection = { ...selection, providers: selection.providers.filter((p) => !skipped.has(p)) };
+  if (Object.keys(exported.profiles).length)
+    files["paseo-providers.json"] = JSON.stringify({ profiles: exported.profiles });
   const { mcps, mcpEnv } = exportMcps(selection.mcps, s, env, selection.mcpUrls);
   for (const names of Object.values(mcpEnv))
     for (const key of names) vars[key] = env[key]!;
@@ -556,6 +574,7 @@ export async function syncProviders(
     providers: selection.providers,
     mcps: [...new Set(selection.mcps)],
     mcpEnv,
+    profileDigests: exported.digests,
   };
   const name = `pw-providers-${owner}-${digest({ files, vars, meta, discovery, controls })}`;
   await applyTriple(
@@ -574,7 +593,7 @@ export async function syncProviders(
       }),
     },
   );
-  return { name, owner, ...meta };
+  return { name, owner, ...meta, skippedProfiles: exported.skipped };
 }
 export interface ProjectSync {
   repository: string;

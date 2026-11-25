@@ -15,6 +15,12 @@ import {
   type SourceOptions,
 } from "./credentials.js";
 import { mergePods, validatePods, type PodsOverride } from "../shared/pods.js";
+import {
+  buildProfilePayload,
+  credentialFacts,
+  listProviderRows,
+  type SnapshotEntryLike,
+} from "./daemon-providers.js";
 import { effectiveProjects } from "./catalog.js";
 import { projectInput, readProviderSet, type SetInfo } from "./sync.js";
 
@@ -261,10 +267,18 @@ export async function projectsStatus(
 }
 
 type RowState = "synced" | "not-synced" | "out-of-date" | "unknown" | "none";
+// What the main daemon reports: provider snapshot entries and the raw config `providers` record.
+// The record holds profile secrets; only derived, secret-free fields reach the returned rows.
+export interface DaemonProviders {
+  entries: SnapshotEntryLike[];
+  providers: Record<string, unknown>;
+}
 export async function providersStatus(
   c: Configuration,
   run: Kubectl,
   o: SourceOptions = {},
+  daemon?: DaemonProviders | null,
+  daemonError?: string,
 ) {
   const found = await discover("", o).catch(() => null);
   const version = c.providers.lastSync?.version;
@@ -281,13 +295,45 @@ export async function providersStatus(
     return inSet ? "out-of-date" : "none";
   };
   const lastSync = c.providers.lastSync;
-  const providers = (found?.providers ?? []).map((p) => ({
-    id: p.id,
-    label: p.label,
-    found: p.available,
-    selected: c.providers.selected.includes(p.id as never),
-    state: state(c.providers.selected.includes(p.id as never), !!set?.providers.includes(p.id)),
-  }));
+  const available = new Set((found?.providers ?? []).filter((p) => p.available).map((p) => p.id));
+  const rows = daemon
+    ? await listProviderRows(
+        daemon.entries,
+        daemon.providers,
+        await credentialFacts(available, o.claudeHome),
+        c.providers.selected,
+        c.providers.profileUrls,
+      )
+    : [];
+  // Current content hashes of the selected profiles, to tell "Synced" from "Out of date".
+  const current = daemon
+    ? await buildProfilePayload(daemon.providers, c.providers.selected, c.providers.profileUrls, c.providers.codexMode).catch(
+        () => null,
+      )
+    : null;
+  const providers = rows.map((r) => {
+    const selected = c.providers.selected.includes(r.id as never);
+    let st = state(selected, !!set?.providers.includes(r.id));
+    if (
+      st === "synced" &&
+      r.kind === "profile" &&
+      current &&
+      set?.profileDigests[r.providerId] !== current.digests[r.providerId]
+    )
+      st = "out-of-date";
+    return { ...r, selected, state: st };
+  });
+  // Credentials that no built-in row represents (extra API keys, the GitHub token).
+  const shown = new Set(rows.map((r) => r.id));
+  const credentials = (found?.providers ?? [])
+    .filter((p) => !shown.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      label: p.label,
+      found: p.available,
+      selected: c.providers.selected.includes(p.id as never),
+      state: state(c.providers.selected.includes(p.id as never), !!set?.providers.includes(p.id)),
+    }));
   const names = new Set([...(found?.mcps.map((m) => m.name) ?? []), ...c.providers.mcps]);
   const mcps = [...names].sort().map((name) => {
     const m = found?.mcps.find((x) => x.name === name);
@@ -302,6 +348,7 @@ export async function providersStatus(
   });
   return {
     providers,
+    credentials,
     mcps,
     oauthFile: found?.oauthFile ?? false,
     codexMode: c.providers.codexMode,
@@ -309,5 +356,6 @@ export async function providersStatus(
     lastSync: lastSync ?? null,
     set: set ? { name: set.name, providers: set.providers, mcps: set.mcps } : null,
     ...(clusterError ? { clusterError } : {}),
+    ...(daemonError ? { daemonError } : {}),
   };
 }

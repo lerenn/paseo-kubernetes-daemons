@@ -24,6 +24,13 @@ sidebar menu. The panel checks for the operator and guides setup.
 3. On the **Providers** tab, **Find providers** on the main host, select the
    credentials and MCP servers to share, **Save selection** and **Sync providers**.
    Only references are saved in plugin settings; values go into Kubernetes Secrets.
+   The list mirrors the main daemon's new-conversation picker: built-in providers and
+   your **provider profiles** (custom providers with their own env, such as an API key or
+   proxy URL). Selected profiles are copied to pod daemons with the same name and models,
+   API keys included (secret at rest in the provider Secret, never shown in the panel).
+   A profile pointing at a loopback URL needs a reachable URL override; a profile whose
+   `CODEX_HOME` is a local directory has its `auth.json` copied to a pod-local home, or shows
+   Missing when unreadable. Claude subscription (OAuth) logins cannot be copied; use `ANTHROPIC_API_KEY`.
 4. On the **Projects** tab, add a repository by URL or local checkout, approve it
    once for new pods, and **Sync project**. The **Overview** tab tracks these steps.
    Optionally size new pods (CPU, memory, storage, Docker sidecar) on the **Pods** tab;

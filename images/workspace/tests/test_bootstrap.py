@@ -152,4 +152,42 @@ class ProviderSetTest(Base):
         self.assertEqual((self.workspace / '.paseo-bootstrap-profile').read_text(), 'profile-v1')
         self.assertFalse(self.codex('auth.json').exists())
 
+class ProfilesTest(ProviderSetTest):
+    def profiles(self, **entries):
+        self.pfiles['paseo-providers.json'] = json.dumps({'profiles': entries}); self.save()
+    def daemon_config(self): return json.loads((self.workspace / '.paseo' / 'config.json').read_text())
+    def test_profiles_merge_into_daemon_config_privately_keeping_existing_keys(self):
+        (self.workspace / '.paseo').mkdir(parents=True)
+        (self.workspace / '.paseo' / 'config.json').write_text(json.dumps({'version': 1, 'daemon': {'x': 1}, 'agents': {'providers': {'claude': {'enabled': True}}}}))
+        self.profiles(**{'codex-proxy': {'provider': {'extends': 'codex', 'label': 'Codex (Proxy)', 'env': {'OPENAI_API_KEY': 'SECRET'}}}})
+        self.prepare()
+        config = self.daemon_config()
+        self.assertEqual(config['daemon'], {'x': 1})
+        self.assertEqual(config['agents']['providers']['claude'], {'enabled': True})
+        self.assertEqual(config['agents']['providers']['codex-proxy']['env']['OPENAI_API_KEY'], 'SECRET')
+        self.assertEqual((self.workspace / '.paseo' / 'config.json').stat().st_mode & 0o777, 0o600)
+        self.assertFalse(self.codex('paseo-providers.json').exists())
+    def test_codex_home_gets_pod_local_auth(self):
+        self.profiles(backup={'provider': {'extends': 'codex', 'env': {'CODEX_HOME': '/home/me/.codex-backup'}}, 'codexAuth': '{"tokens":{"access_token":"B"}}'})
+        self.prepare()
+        home = self.workspace / '.codex-profiles' / 'backup'
+        self.assertEqual(self.daemon_config()['agents']['providers']['backup']['env']['CODEX_HOME'], str(home))
+        self.assertIn('"B"', (home / 'auth.json').read_text())
+        self.assertEqual((home / 'auth.json').stat().st_mode & 0o777, 0o600)
+    def test_subset_and_removal(self):
+        entry = {'provider': {'extends': 'codex'}}
+        self.profiles(a=entry, b=entry)
+        self.prepare(provider_profiles={'a'})
+        self.assertEqual(set(self.daemon_config()['agents']['providers']), {'a'})
+        self.prepare(provider_profiles=set())
+        self.assertEqual(self.daemon_config()['agents']['providers'], {})
+    def test_file_subset_excluding_profiles_writes_nothing(self):
+        self.profiles(a={'provider': {'extends': 'codex'}})
+        self.prepare(provider_files={'auth.json'})
+        self.assertFalse((self.workspace / '.paseo' / 'config.json').exists())
+    def test_builtin_ids_and_bad_payloads_rejected(self):
+        for bad in ({'claude': {'provider': {}}}, {'../x': {'provider': {}}}, {'a': {'provider': 'x'}}):
+            self.profiles(**bad)
+            with self.assertRaises(ValueError): self.prepare()
+
 if __name__ == '__main__': unittest.main()
