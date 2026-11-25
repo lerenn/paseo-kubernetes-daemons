@@ -1,13 +1,10 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 import type { Plugin } from "./settings.js";
 
 export const pluginKey = (p: Pick<Plugin, "source" | "ref">) => p.source + "\0" + p.ref;
 // Content digest of what the pod receives; independent of the installation owner.
 export const pluginDigest = (p: Pick<Plugin, "source" | "ref" | "env">) =>
-  createHash("sha256")
-    .update(JSON.stringify([p.source, p.ref, Object.entries(p.env).sort(([a], [b]) => (a < b ? -1 : 1))]))
-    .digest("hex")
-    .slice(0, 20);
+  sha256Hex(JSON.stringify([p.source, p.ref, Object.entries(p.env).sort(([a], [b]) => (a < b ? -1 : 1))])).slice(0, 20);
 export type PluginState = "synced" | "out-of-date" | "not-synced";
 export function pluginState(p: Plugin): PluginState {
   if (!p.synced) return "not-synced";

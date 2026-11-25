@@ -2,5 +2,5 @@ apiVersion: v2
 name: paseo-workspaces
 description: Operator and optional virtual host gateway running Paseo workspaces as Kubernetes pods
 type: application
-version: 0.4.0
-appVersion: "0.4.0"
+version: 0.4.1
+appVersion: "0.4.1"
