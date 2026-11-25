@@ -42,6 +42,7 @@ type Session struct {
 	collections            map[string]*collectionState
 	workspaceSub, agentSub string
 	eventsFrame            *Frame
+	eventsPublic           string
 }
 
 func randomID() string {
@@ -161,9 +162,12 @@ func (s *Session) handle(frame Frame) error {
 	case "fetch_workspaces_request", "fetch_agents_request", "fetch_agent_history_request":
 		return s.directory(frame)
 	case "session.events.set_subscription.request":
+		public := randomID()
 		s.mu.Lock()
 		copy := frame
 		s.eventsFrame = &copy
+		s.eventsPublic = public
+		s.collections[public] = &collectionState{frame: frame}
 		peers := make([]*livePeer, 0, len(s.peers))
 		for _, p := range s.peers {
 			peers = append(peers, p)
@@ -172,11 +176,15 @@ func (s *Session) handle(frame Frame) error {
 		for _, p := range peers {
 			e, m, _ := messageParts(frame)
 			setString(m, "requestId", randomID())
-			if err := p.backend.Send(encodeMessage(e, m)); err != nil {
+			ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
+			reply, err := p.call(ctx, encodeMessage(e, m), "session.events.set_subscription.response")
+			cancel()
+			if err != nil {
 				return err
 			}
+			s.joinCollection(public, p.target.Name, reply)
 		}
-		f, _ := sessionFrame(map[string]interface{}{"type": "session.events.set_subscription.response", "payload": map[string]interface{}{"requestId": id}})
+		f, _ := sessionFrame(map[string]interface{}{"type": "session.events.set_subscription.response", "payload": map[string]interface{}{"requestId": id, "subscriptionId": public}})
 		return s.emit(f)
 	case "client_heartbeat":
 		s.mu.Lock()
@@ -366,6 +374,8 @@ func (s *Session) adopt(backend *Backend, target Target) *livePeer {
 	if events != nil {
 		e, m, _ := messageParts(*events)
 		setString(m, "requestId", randomID())
+		// The reply is routed through deliver, which joins this peer to the
+		// public events subscription the client already holds.
 		_ = backend.Send(encodeMessage(e, m))
 	}
 	return p
@@ -380,6 +390,12 @@ func (s *Session) deliver(target Target, frame Frame) error {
 		payload := objectValue(message, "payload")
 		op := stringField(message, "type")
 		if op == "session.events.set_subscription.response" {
+			s.mu.Lock()
+			public := s.eventsPublic
+			s.mu.Unlock()
+			if public != "" {
+				s.joinCollection(public, target.Name, frame)
+			}
 			return nil
 		}
 		if err := s.learn(target, payload); err != nil {
@@ -554,7 +570,9 @@ func (s *Session) timeline(frame Frame) error {
 		}
 		grouped[name] = append(grouped[name], id)
 	}
+	public := randomID()
 	s.mu.Lock()
+	s.collections[public] = &collectionState{frame: frame}
 	for name := range s.peers {
 		if _, ok := grouped[name]; !ok {
 			grouped[name] = []string{}
@@ -571,13 +589,14 @@ func (s *Session) timeline(frame Frame) error {
 		m["agentIds"] = data
 		setString(m, "requestId", randomID())
 		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
-		_, err = peer.call(ctx, encodeMessage(e, m), "agent.timeline.set_subscription.response")
+		reply, err := peer.call(ctx, encodeMessage(e, m), "agent.timeline.set_subscription.response")
 		cancel()
 		if err != nil {
 			return err
 		}
+		s.joinCollection(public, name, reply)
 	}
-	response, _ := sessionFrame(map[string]interface{}{"type": "agent.timeline.set_subscription.response", "payload": map[string]interface{}{"requestId": stringField(message, "requestId"), "agentIds": ids}})
+	response, _ := sessionFrame(map[string]interface{}{"type": "agent.timeline.set_subscription.response", "payload": map[string]interface{}{"requestId": stringField(message, "requestId"), "agentIds": ids, "subscriptionId": public}})
 	return s.emit(response)
 }
 
@@ -600,4 +619,25 @@ func (s *Session) archive(frame Frame, peer *livePeer) error {
 		return s.deleteEnvironment(peer.target.Name)
 	}
 	return nil
+}
+
+// joinCollection records a workspace daemon's upstream subscription under the
+// public ID the client holds, so its events and its release route correctly.
+func (s *Session) joinCollection(public, environment string, reply Frame) {
+	_, message, err := messageParts(reply)
+	if err != nil {
+		return
+	}
+	upstream := stringField(objectValue(message, "payload"), "subscriptionId")
+	if upstream == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	collection := s.collections[public]
+	if collection == nil {
+		return
+	}
+	s.upstreamSubs[environment+"/"+upstream] = public
+	collection.routes = append(collection.routes, subscriptionRoute{environment, upstream})
 }
