@@ -104,12 +104,17 @@ test("migration splits the legacy profile into set + project and writes the cata
   try {
     const writes: any[] = [];
     const r = await reconcile(legacyConfig(), { operator: "ready", crdCurrent: true }, deps(f, writes));
-    assert.deepEqual(r, { migrated: true });
+    assert.equal(r.migrated, true);
+    assert.equal(r.error, undefined);
     assert.equal(writes.length, 7);
     const last = writes[6];
     assert.equal(last.metadata.name, "paseo-workspaces-gateway");
     for (const w of writes.slice(0, 6)) assert.notEqual(w.metadata.name, "paseo-workspaces-gateway");
     const [entry] = JSON.parse(last.data["projects.json"]);
+    // The names the client must save into settings (the server cannot write them).
+    assert.equal(r.split?.lastSync.version, entry.providers);
+    assert.equal(r.split?.projects[0].synced?.profile, entry.profile);
+    assert.equal(r.split?.projects[0].synced?.providerSet, entry.providers);
     assert.match(entry.providers, /^pw-providers-/);
     assert.match(entry.profile, /^pw-profile-/);
     assert.notEqual(entry.profile, "pw-profile-o-legacy");

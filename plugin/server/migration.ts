@@ -1,6 +1,4 @@
-import type { PaseoProviderSnapshotResult } from "@getpaseo/client";
 import { scopeOf, type Configuration } from "../shared/settings.js";
-import type { Kubectl } from "./kubernetes.js";
 import {
   buildCatalog,
   effectiveProjects,
@@ -8,30 +6,17 @@ import {
   writeCatalog,
   type SyncedNames,
 } from "./catalog.js";
+import { ownerOf, type ProviderSelection } from "./credentials.js";
 import {
-  ownerOf,
-  projectId,
-  syncProject,
-  syncProviders,
-  type ProviderSelection,
-  type SourceOptions,
-} from "./credentials.js";
+  splitAll,
+  type ProjectResult,
+  type ProviderContext,
+  type Status,
+  type SyncDeps,
+} from "./sync.js";
 
-export interface ProviderContext {
-  snapshot: PaseoProviderSnapshotResult;
-  controls: Record<string, unknown>;
-}
-export interface MigrationDeps {
-  serverId: string;
-  run: Kubectl;
-  options?: SourceOptions;
-  // Provider snapshot and controls from the main daemon; only called when a split sync is needed.
-  providerContext: (selection: ProviderSelection) => Promise<ProviderContext>;
-}
-export interface Status {
-  operator: "ready" | "missing" | "unavailable";
-  crdCurrent: boolean;
-}
+export type MigrationDeps = SyncDeps;
+export type { ProviderContext, Status };
 
 // The legacy bundle (or the saved providers selection) as the shared provider selection.
 export function selectionOf(c: Configuration): ProviderSelection | null {
@@ -59,17 +44,29 @@ export function selectionOf(c: Configuration): ProviderSelection | null {
 // ends up with synced entries when the split succeeds, with legacy entries otherwise. The catalog is
 // always written last, so a partial failure keeps the previous one. Settings are not written here
 // (the server cannot); the cluster catalog is the state that marks a project as split.
+export interface SplitOutcome {
+  providerSet: { name: string; providers: string[]; mcps: string[]; at: string };
+  lastSync: { at: string; version: string };
+  projects: ProjectResult[];
+}
+// Runs after the operator upgrade, from setup.inspect. Idempotent and never throws: the catalog
+// ends up with synced entries when the split succeeds, with legacy entries otherwise. The split is
+// all-or-nothing (one failing project keeps every legacy entry and is retried at the next check). The
+// catalog is always written last, so a partial failure keeps the previous one. Settings are not
+// written here (the server cannot): the returned `split` carries the names for the client to save, and
+// the cluster catalog is what marks a project as split.
 export async function reconcile(
   c: Configuration,
   status: Status,
   deps: MigrationDeps,
   force?: { selection: ProviderSelection },
-): Promise<{ migrated: boolean; error?: string }> {
+): Promise<{ migrated: boolean; error?: string; split?: SplitOutcome }> {
   if (status.operator !== "ready") return { migrated: false };
   const owner = ownerOf(deps.serverId, c);
   const projects = effectiveProjects(c).filter((p) => p.trusted);
   const selection = force?.selection ?? selectionOf(c);
   let synced: Record<string, SyncedNames> | undefined;
+  let split: SplitOutcome | undefined;
   let error: string | undefined;
   let migrated = false;
   try {
@@ -77,40 +74,20 @@ export async function reconcile(
       const existing = await readCatalog(deps.run);
       const done = existing.some((e) => e.providers);
       if (!done || force) {
-        const context = await deps.providerContext(selection);
-        const set = await syncProviders(
-          c,
-          selection,
-          deps.serverId,
-          deps.run,
-          deps.options,
-          context.snapshot,
-          context.controls,
-        );
-        synced = {};
-        for (const p of projects) {
-          const result = await syncProject(
-            c,
-            {
-              repository: p.repository,
-              path: p.path,
-              trusted: p.trusted,
-              revision: p.revision,
-              providerSubset: p.providerSubset,
-              // Project-level MCPs need a checkout; a path-less project has none.
-              projectMcps: p.path ? p.projectMcps : [],
-              mcpUrls: selection.mcpUrls,
-            },
-            set,
-            deps.serverId,
-            deps.run,
-            deps.options,
-          );
-          synced[projectId(p.repository)] = {
-            profile: result.name,
-            providerSet: set.name,
-          };
-        }
+        const r = await splitAll(c, selection, deps);
+        const failed = r.results.find((x) => x.error);
+        if (failed) throw new Error(failed.error);
+        synced = r.synced;
+        split = {
+          providerSet: {
+            name: r.set.name,
+            providers: r.set.providers,
+            mcps: r.set.mcps,
+            at: r.at,
+          },
+          lastSync: { at: r.at, version: r.set.name },
+          projects: r.results,
+        };
         migrated = true;
       } else {
         return { migrated: false };
@@ -118,6 +95,7 @@ export async function reconcile(
     }
   } catch (e) {
     synced = undefined;
+    split = undefined;
     migrated = false;
     error = e instanceof Error ? e.message : "The provider split failed.";
   }
@@ -131,5 +109,5 @@ export async function reconcile(
   } catch (e) {
     error ??= e instanceof Error ? e.message : "The catalog could not be written.";
   }
-  return { migrated, ...(error ? { error } : {}) };
+  return { migrated, ...(split ? { split } : {}), ...(error ? { error } : {}) };
 }
