@@ -163,7 +163,7 @@ const appliedConnections = new Map<string, string>();
 const fingerprintOf = (connection: string) =>
   createHash("sha256").update(connection).digest("hex");
 /**
- * Registers the operator's virtual "<Name> (Kubernetes)" host while the gateway is enabled,
+ * Registers the operator's virtual "<Name> · Kubernetes" host while the gateway is enabled,
  * and removes it once its identity Secret is gone. Failures other than "missing" leave the
  * registration untouched so an API outage cannot erase it.
  */
@@ -202,7 +202,7 @@ export async function syncGateway(
     }
     const customName = c.gatewayHostName.trim();
     const label =
-      customName || `${directory.self.label || c.clusterId} (Kubernetes)`;
+      customName || `${directory.self.label || c.clusterId} · Kubernetes`;
     const registration = {
       connection: gatewayConnection(c, password),
       label,
