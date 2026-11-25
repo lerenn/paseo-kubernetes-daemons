@@ -134,7 +134,7 @@ last. RBAC: unchanged for these objects (`get, create, patch` already, `config/p
    plugin. **Check connection** (`docs/setup.md:72`) is extended to verify the new CRD property and the
    operator version; the plugin refuses to write `providers` catalog fields until both pass.
 2. Old CRs and legacy catalog entries (no `providers`) keep working with the new controller/gateway.
-3. New plugin + old operator would silently create pods without providers, hence the version gate and the
+3. New plugin + old operator would silently create pods without providers, hence the version gate (the plugin asks to upgrade; it never falls back to legacy profiles) and the
    CRD-skew guard. Old plugin + new operator is fine (legacy path).
 4. The workspace image must be >= 0.3.0 for new CRs (the init container needs the new flags); the gateway
    pins the image in the catalog entry, so mixed images stay consistent.
@@ -345,8 +345,9 @@ Decisions 2-7 were not answered; this design assumes my earlier recommendation f
 5. A project with an **empty provider subset** is valid (clone-only, no credentials).
 6. **Display name** is derived from the URL (no gateway change); editable name is optional PR 9.
 
-New open questions:
-- **Q1.** Should the migration split (step 2) run automatically after the operator upgrade (assumed) or only
-  when the user presses "Sync providers"?
-- **Q2.** Is requiring a coordinated 0.3.0 (apply CRD manually, then operator/image/plugin) acceptable, or
-  should the plugin also support writing legacy full profiles to old operators as a fallback?
+Decided by the user:
+- **Q1.** The migration split (step 2, section 5) runs **automatically** after the operator upgrade.
+- **Q2.** A **coordinated 0.3.0** is accepted: apply the CRD manually, then operator, image and plugin
+  together. There is **no legacy-profile fallback** for old operators.
+
+No open questions remain.
