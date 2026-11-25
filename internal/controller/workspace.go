@@ -15,6 +15,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"strings"
 	"time"
 )
 
@@ -26,9 +27,25 @@ type Bootstrap struct {
 	SecretName    string `json:"secretName"`
 	ConfigMapName string `json:"configMapName"`
 	EnvSecretName string `json:"envSecretName"`
+	// Providers optionally references a shared, immutable provider set. Nil keeps the legacy single-profile path.
+	Providers *ProviderRefs `json:"providers,omitempty"`
+}
+
+// ProviderRefs names a provider set and the subset of it this workspace may read.
+// Absent EnvKeys, Files or MCPs mean none of that kind, never all.
+type ProviderRefs struct {
+	SecretName    string   `json:"secretName"`
+	ConfigMapName string   `json:"configMapName"`
+	EnvSecretName string   `json:"envSecretName"`
+	EnvKeys       []string `json:"envKeys,omitempty"`
+	Files         []string `json:"files,omitempty"`
+	MCPs          []string `json:"mcps,omitempty"`
 }
 type Docker struct {
 	Enabled bool `json:"enabled"`
+	// Resources and DataSize override the sidecar defaults when set.
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	DataSize  string                       `json:"dataSize,omitempty"`
 }
 type Spec struct {
 	Gateway          bool                        `json:"gateway,omitempty"`
@@ -142,21 +159,53 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if s.Bootstrap.SecretName == "" || s.Bootstrap.ConfigMapName == "" || s.Bootstrap.EnvSecretName == "" {
 			return ctrl.Result{}, fmt.Errorf("all bootstrap references are required")
 		}
+		if p := s.Bootstrap.Providers; p != nil && (p.SecretName == "" || p.ConfigMapName == "" || p.EnvSecretName == "") {
+			return ctrl.Result{}, fmt.Errorf("all provider references are required")
+		}
 		mode := int32(0440)
 		pod.Spec.Volumes = append(pod.Spec.Volumes,
 			corev1.Volume{Name: "bootstrap-credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: s.Bootstrap.SecretName, DefaultMode: &mode}}},
 			corev1.Volume{Name: "bootstrap-config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: s.Bootstrap.ConfigMapName}, DefaultMode: &mode}}})
 		env := corev1.EnvFromSource{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: s.Bootstrap.EnvSecretName}}}
 		pod.Spec.Containers[0].EnvFrom = append(pod.Spec.Containers[0].EnvFrom, env)
+		initMounts := []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}, {Name: "bootstrap-credentials", MountPath: "/var/run/paseo/credentials", ReadOnly: true}, {Name: "bootstrap-config", MountPath: "/var/run/paseo/config", ReadOnly: true}}
+		initCommand := []string{"python3", "/usr/local/lib/paseo-workspace/bootstrap.py", "--profile", s.Bootstrap.SecretName}
+		if p := s.Bootstrap.Providers; p != nil {
+			// Shared providers are mounted in the init container only. Env vars are exposed one key at a
+			// time so keys outside the subset never reach the daemon.
+			pod.Spec.Volumes = append(pod.Spec.Volumes,
+				corev1.Volume{Name: "provider-credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: p.SecretName, DefaultMode: &mode}}},
+				corev1.Volume{Name: "provider-config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: p.ConfigMapName}, DefaultMode: &mode}}})
+			for _, key := range p.EnvKeys {
+				pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{Name: key, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: p.EnvSecretName}, Key: key}}})
+			}
+			initMounts = append(initMounts, corev1.VolumeMount{Name: "provider-credentials", MountPath: "/var/run/paseo/providers/credentials", ReadOnly: true}, corev1.VolumeMount{Name: "provider-config", MountPath: "/var/run/paseo/providers/config", ReadOnly: true})
+			initCommand = append(initCommand, "--providers", p.SecretName, "--providers-secrets", "/var/run/paseo/providers/credentials", "--providers-config", "/var/run/paseo/providers/config")
+			// Always passed: an empty value means none, so the bootstrap never falls back to "all".
+			initCommand = append(initCommand, "--provider-files="+strings.Join(p.Files, ","), "--provider-mcps="+strings.Join(p.MCPs, ","))
+		}
 		pod.Spec.InitContainers = []corev1.Container{{Name: "bootstrap", Image: s.Image,
-			Command: []string{"python3", "/usr/local/lib/paseo-workspace/bootstrap.py", "--profile", s.Bootstrap.SecretName},
+			Command: initCommand,
 			Env:     pod.Spec.Containers[0].Env, EnvFrom: pod.Spec.Containers[0].EnvFrom, Resources: s.Resources, SecurityContext: container.SecurityContext,
-			VolumeMounts: []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}, {Name: "bootstrap-credentials", MountPath: "/var/run/paseo/credentials", ReadOnly: true}, {Name: "bootstrap-config", MountPath: "/var/run/paseo/config", ReadOnly: true}}}}
+			VolumeMounts: initMounts}}
 	}
 	if s.Docker != nil && s.Docker.Enabled {
 		// Use a Unix socket only: the stock entrypoint otherwise also opens TCP.
 		root := int64(0)
 		dockerSize := resource.MustParse("10Gi")
+		if s.Docker.DataSize != "" {
+			q, err := resource.ParseQuantity(s.Docker.DataSize)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("invalid docker dataSize: %w", err)
+			}
+			dockerSize = q
+		}
+		dockerResources := corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("256Mi"), corev1.ResourceEphemeralStorage: resource.MustParse("1Gi")},
+			Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("2Gi"), corev1.ResourceEphemeralStorage: resource.MustParse("12Gi")}}
+		if s.Docker.Resources != nil {
+			dockerResources = *s.Docker.Resources
+		}
 		socket := corev1.VolumeMount{Name: "docker-socket", MountPath: "/var/run/docker"}
 		pod.Spec.Volumes = append(pod.Spec.Volumes,
 			corev1.Volume{Name: "docker-socket", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory, SizeLimit: quantityPtr("1Mi")}}},
@@ -174,11 +223,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			Args:            r.dockerdArgs(),
 			Env:             []corev1.EnvVar{{Name: "DOCKER_TLS_CERTDIR", Value: ""}},
 			SecurityContext: &corev1.SecurityContext{Privileged: boolPtr(true), RunAsUser: &root, RunAsGroup: &root, RunAsNonRoot: boolPtr(false)},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("256Mi"), corev1.ResourceEphemeralStorage: resource.MustParse("1Gi")},
-				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("2Gi"), corev1.ResourceEphemeralStorage: resource.MustParse("12Gi")}},
-			VolumeMounts:   []corev1.VolumeMount{socket, {Name: "docker-data", MountPath: "/var/lib/docker"}, {Name: "workspace", MountPath: "/workspace"}},
-			ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"docker", "--host=unix:///var/run/docker/docker.sock", "info"}}}, PeriodSeconds: 5},
+			Resources:       dockerResources,
+			VolumeMounts:    []corev1.VolumeMount{socket, {Name: "docker-data", MountPath: "/var/lib/docker"}, {Name: "workspace", MountPath: "/workspace"}},
+			ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"docker", "--host=unix:///var/run/docker/docker.sock", "info"}}}, PeriodSeconds: 5},
 		})
 	}
 	if s.Gateway {

@@ -83,6 +83,45 @@ func TestAPIAdmission(t *testing.T) {
 	if len(pod.Spec.Containers) != 2 || pod.Spec.Containers[1].Name != "docker" {
 		t.Fatal("Docker configuration was not preserved by API admission")
 	}
+	// New fields are admitted and preserved; incomplete or malformed ones are rejected.
+	prov := map[string]interface{}{"secretName": "prov", "configMapName": "prov", "envSecretName": "prov-env", "envKeys": []interface{}{"OPENAI_API_KEY"}, "files": []interface{}{"auth.json"}, "mcps": []interface{}{"docs"}}
+	res := map[string]interface{}{"requests": map[string]interface{}{"cpu": "500m", "memory": "1Gi", "ephemeral-storage": "2Gi"}, "limits": map[string]interface{}{"cpu": "4", "memory": "8Gi", "ephemeral-storage": "30Gi"}}
+	shared := object()
+	shared.SetName("shared")
+	shared.SetNamespace("test")
+	shared.Object["spec"] = map[string]interface{}{"image": "example/paseo:test", "docker": map[string]interface{}{"enabled": true, "resources": res, "dataSize": "40Gi"}, "bootstrap": map[string]interface{}{"secretName": "profile", "configMapName": "profile", "envSecretName": "profile-env", "providers": prov}}
+	if err := c.Create(ctx, shared); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(shared)}); err != nil {
+		t.Fatal(err)
+	}
+	sharedPod := &corev1.Pod{}
+	if err := c.Get(ctx, client.ObjectKey{Name: "pw-shared", Namespace: "test"}, sharedPod); err != nil {
+		t.Fatal(err)
+	}
+	if len(sharedPod.Spec.InitContainers[0].Command) < 8 || sharedPod.Spec.Containers[1].Resources.Limits.Memory().String() != "8Gi" {
+		t.Fatal("providers or docker settings were pruned by API admission")
+	}
+	bad := map[string]map[string]interface{}{
+		"missing provider env secret": {"bootstrap": map[string]interface{}{"secretName": "p", "configMapName": "p", "envSecretName": "p-env", "providers": map[string]interface{}{"secretName": "a", "configMapName": "a"}}},
+		"bad provider name":           {"bootstrap": map[string]interface{}{"secretName": "p", "configMapName": "p", "envSecretName": "p-env", "providers": map[string]interface{}{"secretName": "A_B", "configMapName": "a", "envSecretName": "a-env"}}},
+		"bad env key":                 {"bootstrap": map[string]interface{}{"secretName": "p", "configMapName": "p", "envSecretName": "p-env", "providers": map[string]interface{}{"secretName": "a", "configMapName": "a", "envSecretName": "a-env", "envKeys": []interface{}{"bad-key"}}}},
+		"unknown provider file":       {"bootstrap": map[string]interface{}{"secretName": "p", "configMapName": "p", "envSecretName": "p-env", "providers": map[string]interface{}{"secretName": "a", "configMapName": "a", "envSecretName": "a-env", "files": []interface{}{"config.toml"}}}},
+		"providers without profile":   {"bootstrap": map[string]interface{}{"providers": prov}},
+		"docker resources incomplete": {"docker": map[string]interface{}{"enabled": true, "resources": map[string]interface{}{"requests": map[string]interface{}{"cpu": "1"}, "limits": map[string]interface{}{"cpu": "2"}}}},
+		"docker data size":            {"docker": map[string]interface{}{"enabled": true, "dataSize": "lots"}},
+	}
+	for name, spec := range bad {
+		o := object()
+		o.SetName("bad")
+		o.SetNamespace("test")
+		spec["image"] = "example/paseo:test"
+		o.Object["spec"] = spec
+		if err := c.Create(ctx, o); err == nil {
+			t.Fatalf("%s was admitted", name)
+		}
+	}
 	// Read the latest resourceVersion after the status update.
 	if err := c.Get(ctx, client.ObjectKeyFromObject(w), w); err != nil {
 		t.Fatal(err)
