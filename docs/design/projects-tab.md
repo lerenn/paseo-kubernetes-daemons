@@ -1,164 +1,228 @@
-# Design: a "Projects" tab
+# Design: a global "Providers" tab and a thin "Projects" tab
 
-Status: proposal for review. No code changes. Evidence is cited as `path:line` on `origin/main` (789d0c8).
+Status: proposal for review (revision 2). No code changes. Evidence is `path:line` on `origin/main`
+(89fb032 and later). Items marked **[CHANGED]** differ from revision 1, which made each project carry a
+full credential profile and kept the Credentials tab.
 
 ## 0. Summary
 
-A project becomes a first-class record: **one project = one repository = one credential profile**.
-The profile triple (Secret, env Secret, ConfigMap) and its naming stay exactly as today; the plugin
-just produces one per project instead of one in total. The gateway **already** supports many
-profiles through its catalog, so the gateway/operator/CRD/pod need almost no change.
+**[CHANGED]** The **Credentials** tab becomes a global **Providers** tab: the user picks once which
+providers (Codex login, OpenAI/Anthropic/Gemini keys, `GITHUB_TOKEN`, user-level MCP servers) found on
+the main daemon are shared with every Kubernetes workspace. A **Projects** tab then lists thin projects:
+repository URL, trust approval, optional image/docker/ephemeral overrides and an optional per-project
+subset of the shared providers (off = all). The Repository field moves from Credentials to Projects.
 
-One important finding: **nothing in this repository writes the gateway catalog**
-(`paseo-workspaces-gateway` ConfigMap, key `projects.json`). The gateway only reads it
-(`internal/gateway/configuration.go:34-60`, operator RBAC is `get` only at
-`charts/paseo-workspaces/templates/operator.yaml:31-35`); `git log -S projects.json` shows only the
-gateway commits, and `grep` finds no writer in `plugin/`. With no catalog the gateway reports
-"project credentials have not been synced" (`session.go:134`). This must be verified on the live
-cluster (someone may create it by hand), but it means the catalog writer is the first deliverable
-and also the migration path for existing users.
+**Recommendation (section 2): keep the pod/controller/CRD/gateway contract unchanged.** Providers are
+selected and read once on the daemon; at sync time the plugin writes one ordinary immutable profile
+triple *per project* whose contents are `shared providers ∩ project subset` plus that project's
+repository. "Synced once" is true from the user's side (one button, one read of the daemon); in the
+cluster the result is fanned out to N small profiles. A shared cluster-side provider set (option B)
+needs CRD, controller, bootstrap and gateway changes and does not reduce the Codex refresh-token risk;
+it stays available as a later migration because the plugin-side model is identical.
+
+**Missing catalog writer (verified on the live cluster).** The catalog ConfigMap
+`paseo-workspaces-gateway` (key `projects.json`, read at `internal/gateway/configuration.go:34-60`) is
+**not written by anything in this repository** (operator RBAC is `get` only,
+`charts/paseo-workspaces/templates/operator.yaml:31-35`; no writer in `plugin/`) and **does not exist on
+the cluster**. `Catalog.Load` then returns no provisioners and creation fails with "project credentials
+have not been synced" (`session.go:134`). `sync()` even reports `gatewayReady: true`
+(`plugin/server/credentials.ts:379`) although nothing the gateway needs was written. Workspace creation
+is therefore broken today for every user, independent of this redesign. **Phase 1 is the catalog writer.**
 
 ## 1. Data model
 
 ### Today
-- One saved `bundle` in plugin settings (`plugin/shared/settings.ts:30`), global `image`, `docker`,
-  `ephemeral` (`settings.ts:22,28-29`).
-- `sync()` writes `pw-profile-<owner>-<version>` + `-env` Secret + ConfigMap, label
-  `workspaces.paseo.sh/profile-owner=<owner>` (`credentials.ts:319-361`). `owner` hashes server id and
-  scope; `version` hashes files, env, provider snapshot and controls. The repository URL and trust
-  approval live in `bootstrap.json` (`credentials.ts:293-298,361`).
-- The gateway derives the project from that ConfigMap: id `prj_<sha256(url)[:16]>`, name from the URL
-  basename, root `/__paseo_kubernetes_projects/<id>` (`discovery.go:62-81`).
+- One saved `bundle` plus global `image`, `docker`, `ephemeral` in plugin settings, schema version 1
+  (`plugin/shared/settings.ts:22,28-30,33-38`).
+- `sync()` writes `pw-profile-<owner>-<version>` Secret (`files.json`) + `-env` Secret + ConfigMap
+  (`bootstrap.json`: repository, trust, providers, mcps, providerSnapshot, providerControls), all
+  immutable, label `workspaces.paseo.sh/profile-owner=<owner>` (`credentials.ts:319-371`). `owner` hashes
+  server id and scope; `version` hashes files, env, snapshot and controls.
+- The gateway derives the project from the profile ConfigMap: id `prj_<sha256(url)[:16]>`, name from the
+  URL basename, root `/__paseo_kubernetes_projects/<id>` (`discovery.go:62-81`), and also reads the
+  provider snapshot/controls from it (`discovery.go:44-55`).
 
-### Proposal: one profile per project
-- **Profile objects:** unchanged layout and names. Add one label to all three objects:
-  `workspaces.paseo.sh/project=<id>` where `<id>` is the same 32-hex hash the gateway uses. The version
-  hash already includes the repository, so two projects never collide. Name length stays well under
-  the 59-char limit (`provision.go:58`): 11 + 16 + 1 + 20 = 48.
-- **Project registry (source of truth):** plugin settings, version 1 -> 2 (`settings.ts:33-38`), new
-  field `projects: Project[]` next to the existing fields:
-  `{ id, repository (URL), path? (daemon checkout), trusted, revision, providers[], mcps[], mcpUrls,
-  includeMcpOAuthFile, overrides: { image?, docker?, ephemeral? }, bundle: bundleSchema|null }`.
-  `bundle` is the existing per-sync record (name, scope, syncedAt, providers, mcps, repository).
-- **Gateway projection (derived, never edited by hand):** the existing catalog ConfigMap,
-  with one `ProfileConfiguration` per *synced and approved* project
-  (`configuration.go:20-26`): `{profile, image, docker, ephemeral, mainConnection}`. The plugin
-  rewrites the whole list from settings with `applyOwned` (so it carries the `profile-owner` label that
-  `Load` requires, `configuration.go:42`). Single writer, idempotent, no read-modify-write races.
-  Limit 100 entries (`configuration.go:46`), which becomes the project limit.
-- **Credentials per project:** each project profile carries its own selection (providers, MCPs,
-  optional GITHUB_TOKEN), defaulting to the Credentials tab selection. Values still come from the one
-  main daemon (`credentials.ts:225-233`), so `GITHUB_TOKEN` has one value but is opted in per project.
-  Cost: `auth.json` is duplicated per profile (see risks).
-- **Overrides** (`image`, `docker`, `ephemeral`) live only in the catalog entry, not in the profile, so
-  editing them needs no re-sync, just a catalog rewrite. `Load` already defaults an empty image
-  (`configuration.go:51-53`).
+### Proposal **[CHANGED]**
+**Plugin settings (source of truth, version 1 -> 2, `settings.ts:33-38`):**
+- `providers`: the shared selection `{ selected: ProviderId[], mcps: string[], mcpUrls, includeMcpOAuthFile,
+  revision counter, lastSync: { at, version, error? } }`. Values are never stored; they are re-read from
+  the main daemon at each sync (`credentials.ts:210-270`).
+- `projects: Project[]`: `{ id, repository, path?, trusted, revision, overrides: { image?, docker?,
+  ephemeral? }, providerSubset: ProviderId[] | null (null = all selected), projectMcps: string[],
+  synced: { profile, providerVersion, at } | null }`. No secret material, only references and hashes.
+- Existing `image`, `docker`, `ephemeral` become the defaults that project overrides fall back to.
 
-### Migration of the existing single profile (no user action)
-- Settings: `projects` defaults to `[]`. On read, if `bundle?.repository` is set and `projects` is empty,
-  synthesize one project from it (settings flags become its overrides: current `docker`/`ephemeral`).
-  Persist lazily on the next save. A bundle with no repository stays a "no project" bundle and keeps
-  working through the direct-environment path (`backend.ts:55-66`).
-- Cluster: nothing is renamed. On first `setup.inspect` / attach, if the catalog is absent or stale,
-  write it from the synthesized project. Existing profile objects, running pods and direct CRs are
-  untouched. The Credentials tab keeps the same selection UI and its "Sync credentials" button keeps
-  working (it becomes "sync the default project" until the Projects tab ships).
+**Cluster objects (no layout change):** per project, the same triple
+`pw-profile-<owner>-<version>` / `-env` Secrets + ConfigMap, same immutability and `profile-owner`
+label. Additive labels on all three:
+- `workspaces.paseo.sh/project=<id>` (the gateway's 32-hex URL hash),
+- `workspaces.paseo.sh/provider-set=<hash>`: hash of the *selected provider values and controls*
+  (`version` already changes with them; the separate label lets the UI tell "providers changed" from
+  "project changed" and find all profiles to GC).
+Name length stays 48 chars, under the 59-char limit (`provision.go:58`).
 
-## 2. Gateway / operator impact
+**Catalog (derived, never hand edited):** the existing ConfigMap with one `ProfileConfiguration` per
+synced and approved project (`configuration.go:20-26`), written whole by the plugin with `applyOwned`
+(carries the `profile-owner` label `Load` requires, `configuration.go:42`). Limit 100 projects
+(`configuration.go:46`). Overrides live only here, so editing them needs no re-sync.
 
-**How a create request picks a project.** The Paseo `workspace.create.request` carries
-`source.projectId` (the id the gateway itself advertised in `project.list` / `emptyProjects`,
-`discovery.go:85-92`, `directory.go:141-159`) or `source.path` / `source.cwd` equal to the synthetic
-root. `Session` resolves it via the catalog: `session.go:480-488` then `discovery()`
-(`session.go:120-134`) walks the catalog and returns the matching provisioner. That path is already
-multi-profile. `PrepareCreate` rejects a mismatching project or path (`create_request.go:46-54`) and
-`Creator` re-checks the repository (`create.go:63-70,88`; `provision.go:172-174`).
+**Profile contents per project:** `files.json` = `config.toml` (shared MCPs + that project's MCPs + trusted
+repo path), `auth.json` if the Codex login is in the project's subset, `.credentials.json` if requested;
+env Secret = the subset's API keys and `GITHUB_TOKEN`; ConfigMap = repository, trust, subset names,
+snapshot/controls. This is exactly what `bundle()` already produces from a selection
+(`credentials.ts:192-300`); the only change is that the selection is derived from the shared set and the
+project instead of one form.
+
+**What the project cannot do:** add a credential the Providers tab has not selected. A project subset can
+only narrow.
+
+### Fan-out sync
+"Sync providers" reads the daemon once, then for every *approved* project builds its bundle, applies the
+triples (secrets first, ConfigMap last, same as `credentials.ts:369-371`) and finally rewrites the catalog.
+A failure mid-way leaves the catalog on the old profiles, so projects are never half-updated; the UI
+reports per-project errors. "Sync project" does the same for one project without re-reading unchanged
+shared values being a requirement. Total size check (`credentials.ts:363-368`) stays per profile.
+
+## 2. Two options for reading providers in the pod
+
+Verified against code; both keep CRDs immutable (`paseoworkspaces.yaml:40-45`).
+
+| | **A: merge at sync time (recommended)** | **B: shared provider set + project profile** |
+|---|---|---|
+| Cluster objects | N triples, each already contains its provider data | 1 shared provider triple + N thin project profiles (ConfigMap only, plus a project Secret only if per-project files exist) |
+| CRD | none: `spec.bootstrap` keeps `secretName/configMapName/envSecretName` (`paseoworkspaces.yaml:61-70`) | add optional `spec.bootstrap.providers {secretName, envSecretName, configMapName}` |
+| Controller | none (`controller/workspace.go:141-154`) | mount 2nd Secret + ConfigMap volumes, 2nd `envFrom`, pass `--providers` to init container; validate the new refs |
+| `bootstrap.py` | none (`prepare()`, `bootstrap.py:88-140`) | read and merge two `files.json` / `bootstrap.json` (provider data under project, project wins), marker (`:128-140`) must key on both profile names; keep `ALLOWED_FILES` check per source |
+| `provision.go` | none: owner-label co-ownership check over Secret + env Secret + ConfigMap (`provision.go:79-96`) and provider/MCP gates (`:97-164`) stay | run the same check on **both** triples, require *equal* owner labels, evaluate provider/MCP gates against the shared set restricted by the project subset, write the extra refs at `:186`, extend `existing()` (`:203-211`) |
+| `configuration.go` | none | `ProfileConfiguration` gains `providers` (the shared profile name); `Load` validates it |
+| `discovery.go` / `target.go` | none | `Discover` (`discovery.go:44-55`) reads snapshot/controls from the shared set; `Targets` (`target.go:47-57`) needs the second ref from the CR |
+| Provider rotation | re-sync rewrites N triples (new versions); running pods unaffected | rewrite 1 shared triple, repoint the catalog; running pods unaffected |
+| Partial failure | possible mid fan-out, mitigated by writing the catalog last | none (single object) |
+| etcd/Secret volume | N copies of `auth.json`/keys (few KB each, <= 100 projects) | 1 copy |
+| Back-compat | complete: old gateway/operator/images work | needs new operator **and** workspace image together; an old operator ignores the new CRD field and pods start with no providers |
+| Release risk | plugin only | Go + chart (CRD) + image + plugin, coordinated |
+
+**Codex refresh-token duplication.** Codex rotates refresh tokens. This risk already exists today: every
+pod copies `auth.json` into its own `CODEX_HOME` (`bootstrap.py:136-139`), and pods refresh
+independently. Neither option adds *pod-level* duplication, and B does not remove it. Option A adds only
+stored copies (immutable, never refreshed in cluster), all identical at sync time, so no extra
+invalidation arises from storing them. The real mitigation is operational, not structural: re-sync after
+re-login on the daemon, and treat `auth.json` as a single-session credential. The Providers row warns
+that sharing a Codex *subscription* login across many pods can log some of them out; API keys
+(`openai-key`) do not have the problem and the UI should prefer them.
+
+**Recommendation: A.** It delivers the user-visible model (select once, apply to every pod, per-project
+narrowing) with plugin-only changes, and it is the only option shippable without a coordinated image and
+operator rollout. B pays off only if the project count or Secret volume becomes an issue; because the
+plugin model (shared selection + project subset) is identical, switching later is an internal change
+with no new UI and no migration for users.
+
+## 3. Gateway / operator impact (Option A)
+
+**How a create request picks a project.** `workspace.create.request` carries `source.projectId` (id the
+gateway advertised, `discovery.go:85-92`) or a path equal to the synthetic root; `Session` resolves it
+via the catalog (`session.go:480-488`, `discovery()` `session.go:120-134`) to the matching provisioner,
+and `Creator` re-checks repository and approval (`create.go:63-88`; `provision.go:172-174`). Already
+multi-profile.
 
 **Changes (all small):**
-1. *Plugin writes the catalog* (the major missing piece; see section 0). No Go change needed, but add a
-   contract test that `Load` parses what the plugin emits.
-2. *Blast radius.* `Discover` failure for any one profile aborts the host-wide project list and
-   workspace directory (`host_requests.go:25-29`, `directory.go:141-145`), because errors propagate.
-   With N projects one deleted/corrupt profile would hide all of them. Change those loops (and
-   `Catalog.Load`, `configuration.go:54-56`) to skip and log the broken entry. Required before shipping
-   multiple projects.
-3. *Duplicate repositories.* `discovery()` returns the first match (`session.go:130`); the plugin must
-   enforce unique repository URL per project (the id is derived from the URL).
-4. *No CRD change.* `spec.bootstrap` already names the profile per workspace and `workingDirectory` is
-   `/workspace/repository` (`provision.go:182-186`; CRD fields at `charts/.../paseoworkspaces.yaml:45-64`).
-5. *Pod bootstrap unchanged.* Each pod's init container gets its own profile and clones one repo to
-   `/workspace/repository` (`images/workspace/bootstrap.py:64,104`; `controller/workspace.go:141-154`).
-   Multiple repositories in one workspace are out of scope.
-6. *Provider snapshot / controls* are merged across catalog entries by provider name, last wins
-   (`host_requests.go:34-43`). Acceptable; documented as "the last project's snapshot wins".
+1. **Plugin writes the catalog (new, blocking, see section 0).** Add a Go contract test that `Load`
+   parses the plugin's emitted JSON.
+2. **Blast radius.** One broken profile aborts the whole host project list and directory
+   (`host_requests.go:25-29`, `directory.go:141-145`, `configuration.go:54-56`). Skip and log broken
+   entries instead. Required before shipping multiple projects. (Fan-out sync raises the odds of a stale
+   profile, so this matters more than in revision 1.)
+3. **Unique repository URL per project**, enforced by the plugin; `discovery()` returns the first match.
+4. **No CRD, controller, `provision.go` or `bootstrap.py` change.** Profile references stay as in
+   `provision.go:182-186`; each pod bootstraps one profile and clones one repository to
+   `/workspace/repository` (`bootstrap.py:64,104`).
+5. Provider snapshot/controls are merged across catalog entries last-wins (`host_requests.go:34-43`).
+   With one shared selection the snapshots are nearly identical (differences only from subsets);
+   acceptable.
+6. RBAC: `config/plugin-rbac.yaml` already grants `secrets, configmaps: get, create, patch`, enough for
+   the catalog (`applyOwned`) and profiles; `delete` is only needed by optional GC.
 
-**Back-compat with v0.2.5.** The plugin catalog is plain JSON that older gateways parse (unknown fields
-ignored). Old plugin + new gateway: unchanged behaviour. Profile naming and labels are additive.
-Existing workspaces keep their `spec.bootstrap` references (immutable profiles, `setup.md:157`), and
-`Targets()` resolves each running workspace's own profile, not the catalog (`target.go:47-57`), so
-removing or re-syncing a project cannot orphan or reroute running pods.
+Back-compat with v0.2.5 and removal semantics are unchanged from revision 1: running workspaces resolve
+their own profile (`target.go:47-57`) and are never orphaned by removing a project or re-syncing.
 
-## 3. Tab UX (same Card/Badge/Field style as `plugin/client/screen.tsx`)
+## 4. UX
 
-Add `{ id: "projects", label: "Projects", icon: ... }` to `TABS` (`screen.tsx:41-47`), between
-Credentials and Workspaces; the Overview checklist gets a "Projects" step.
+### Providers tab **[CHANGED]** (replaces Credentials; same Card/Badge/Field style as `screen.tsx`)
+- **Find credentials** (existing button, `screen.tsx:742`) scans the main daemon; rows appear for each
+  found item. Not found = disabled row with a hint ("log in on the main host").
+- **Row:** name, source (Codex login, env var, MCP server), badges `Found`, `Selected`,
+  `Synced`/`Out of date`/`Not synced`, last-sync time, short error if the last sync failed.
+  Checkbox selects it for all projects.
+- **Details (moved from "Advanced credential settings", `screen.tsx:864`):** per row, expandable:
+  Codex login: OAuth/file-store note and the refresh-token warning; MCP servers: URL override for
+  loopback endpoints, "Include MCP OAuth cache" (`screen.tsx:897`, applies to the whole set); sync
+  revision/status. Repository revision (`screen.tsx:871`) moves to the project, not the provider.
+- **MCP servers:** user-level servers from `~/.codex/config.toml` are provider rows. Servers defined in a
+  repository's `.codex/config.toml` are *project* MCPs, shown in the project's edit panel after
+  approval, not here (they only exist with a checkout, see Projects).
+- **`GITHUB_TOKEN`:** a normal provider row (`providerEnv`, `credentials.ts:15-19`). It is the only row
+  with a per-project effect: a project whose repo is `https://github.com/` shows a "Use GitHub token"
+  toggle (default on). SSH origins keep the existing image requirement.
+- **Buttons:** one **Sync providers** (fan-out to all approved projects) and the per-project sync on the
+  Projects tab. The tab shows "N projects will be updated".
 
-- **List** (one row/card per project): name, repository URL, badges `Approved`/`Not approved`,
-  `Synced`/`Out of date`/`Not synced`, last sync time, workspace count (count environments whose
-  `spec.bootstrap.configMapName` equals the project's current or previous profile; the list RPC needs
-  to expose that field). Empty state explains the flow.
-- **Add:** two inputs, *Checkout on this daemon* (path; reads `origin`, reuses `sources()`,
-  `credentials.ts:87-121`) or *Repository URL* (validated with `repositoryUrl()`, `credentials.ts:70-86`).
-  URL-only projects have no project `.codex/config.toml`, so only user-level MCPs are offered; the UI
-  says so. Needs a small `sources()` branch for URL without path.
-- **Approve:** shows URL, revision, and the MCP names found in the checkout, then sets `trusted`
-  (replaces the Credentials-tab checkbox; the server still refuses to export without it,
-  `credentials.ts:198-201`).
-- **Edit:** revision (validated as today), image, docker, ephemeral, credential selection, MCP URL
-  overrides. Image/docker/ephemeral save instantly (catalog only); the rest marks the project "Out of
-  date" until synced.
-- **Sync:** per project, plus "Sync all". The Credentials tab keeps defaults; "Sync all" reuses them.
-- **Remove:** drops the project from settings and the catalog so it disappears from the host picker and
-  cannot start new workspaces. **Do not** delete running workspaces or profile objects; running
-  workspaces stay reachable (see `target.go:47-57`). The confirm dialog says so and shows the count.
-  Profile cleanup stays manual (as `setup.md:157` documents) until the optional GC phase.
-- **Private repos:** `GITHUB_TOKEN` stays one value read from the main daemon; each project has a
-  checkbox "Use GitHub token" (default on if the repo is `https://github.com/`). SSH origins keep the
-  existing image-specific requirement (`setup.md` credentials section).
+### Projects tab (thin)
+- Add `{ id: "projects", label: "Projects" }` to `TABS` (`screen.tsx:41-47`) after Providers; Overview
+  gets a "Projects" step.
+- **List:** name, repository URL, `Approved`, `Synced`/`Out of date`, providers badge (`All` or `3 of 5`),
+  last sync, workspace count (needs `spec.bootstrap.configMapName` exposed by the list RPC).
+- **Add:** *Checkout on this daemon* (reads `origin`, reuses `sources()`, `credentials.ts:87-121`) or
+  *Repository URL* (`repositoryUrl()`, `credentials.ts:70-86`). URL-only projects get no project MCPs.
+- **Approve** shows URL, revision and project MCP names, then sets `trusted` (the server still refuses to
+  export without it, `credentials.ts:198-201`). Repository **moves here** from Credentials.
+- **Edit:** revision, image, docker, ephemeral (catalog only, instant), provider subset toggle ("Use
+  only some providers", off by default), project MCPs and URL overrides.
+- **Remove:** drops the project from settings and catalog; never deletes running workspaces or profile
+  objects (`target.go:47-57`); confirm dialog states this and shows the count.
 
-## 4. Phased plan
+## 5. Migration of the existing profile (no user action) **[CHANGED]**
+- Settings v1 -> v2 on read: `providers.selected` = the old `bundle.providers`, `providers.mcps` = old
+  `bundle.mcps`, OAuth/URLs likewise. If `bundle.repository` is set and `projects` is empty, synthesize
+  one project from it (`trusted` = the old approval, `revision`, overrides from the old `docker` and
+  `ephemeral`, subset null). A bundle without repository keeps working through the direct-environment path
+  (`backend.ts:55-66`) and yields providers but no project. Persist lazily on next save.
+- Cluster: nothing renamed or deleted. The old profile object is adopted as that project's current
+  profile (label `project=<id>` added only at the next sync). Because the catalog does not exist today, on
+  first attach / `setup.inspect` the plugin writes it from the synthesized project, which also **fixes
+  workspace creation immediately** for existing users without any click.
+- Running pods and direct CRs are untouched. Credentials tab disappears; the same selection shows up on
+  Providers pre-ticked.
+
+## 6. Phased plan **[CHANGED]**
 
 | PR | Scope | Tests |
 |----|-------|-------|
-| 1 | **Catalog writer + silent migration** (plugin only): `catalog.ts` builds `projects.json` from settings (or legacy bundle), applied with `applyOwned`; called after sync and on attach. | Unit: catalog JSON for 0/1/N projects; foreign-owner refusal; Go contract test that `Catalog.Load` parses a plugin fixture. |
-| 2 | **Project model + RPCs:** settings v2 `projects`, `projects.list/add/update/approve/remove/sync`, `project` label, URL-only `sources()`, unique-URL rule, workspace count field. | credentials/settings tests: migration from v1 bundle, URL-only bundle, trust gating, labels, size/limit. |
-| 3 | **Projects tab UI** + trim repository/trust fields out of Credentials; Overview step; docs/website. | Component smoke via existing patterns; manual run on a cluster. |
-| 4 | **Gateway hardening:** skip broken catalog entries (`host_requests.go`, `directory.go`, `configuration.go`), multi-profile create/route tests. | Go tests with two profiles, one deleted; create picks the right profile; `Targets` unaffected by catalog removal. |
-| 5 (optional) | Sync all, profile GC (old versions not referenced by a CR or catalog; needs `delete` in `config/plugin-rbac.yaml`), display-name override (needs gateway change). | GC safety tests. |
+| 1 | **Catalog writer + silent migration** (plugin only): `catalog.ts` builds `projects.json` from settings or the legacy bundle, `applyOwned` on attach and after sync; stop reporting `gatewayReady` until the catalog exists. Fixes creation for current users. | Unit: JSON for 0/1/N entries; foreign-owner refusal; Go contract test that `Catalog.Load` parses a plugin fixture. |
+| 2 | **Settings v2 + sync engine:** `providers` + `projects`, migration, fan-out sync, `project`/`provider-set` labels, subset logic, unique URL, per-project status. RPCs `providers.find/select/sync`, `projects.list/add/update/approve/remove/sync`. | v1 -> v2 migration, subset narrowing, trust gating, fan-out partial failure keeps old catalog, size/limit. |
+| 3 | **Gateway hardening:** skip broken entries (`host_requests.go`, `directory.go`, `configuration.go`), multi-profile create/route tests. Parallel with 2, must merge before 4 is released. | Two profiles, one deleted; create picks the right one; `Targets` unaffected by catalog removal. |
+| 4 | **UI:** Providers tab (rename + rows + details), Projects tab, Overview steps, docs/website. | Component smoke tests; manual run on a cluster. |
+| 5 (optional) | Profile GC by `provider-set`/`project` label (needs `delete` in `config/plugin-rbac.yaml`), editable display name (gateway change), and the Option B migration if secret volume demands it. | GC safety. |
 
-PR 4 can run in parallel with 2-3 but must merge before 3 is released.
+## 7. Risks
+- Catalog could be hand-created on other clusters; the plugin only overwrites a catalog carrying its own
+  owner label (`applyOwned`, `kubernetes.ts:102-140`).
+- Codex refresh-token behaviour (section 2); unchanged pod-level risk, warned in the UI.
+- Fan-out partial failure; mitigated by catalog-last and per-project retry.
+- A project's id is a hash of its URL; changing the URL makes a new project.
+- Stale detection depends on stored `provider-set`/profile hashes.
+- Catalog is read once per session call; fine at 100 entries.
 
-## 5. Risks
-
-- Catalog may be hand-created today; replacing it could drop entries. Mitigation: the plugin only
-  overwrites a catalog carrying its own owner label (`applyOwned` already refuses foreign objects,
-  `kubernetes.ts:102-140`).
-- Duplicated `auth.json` per project: Codex rotates refresh tokens, so pods from different profiles
-  could invalidate each other's login (already true across pods of one profile; wider here).
-- Project id is a hash of the URL: changing the URL is a different project (history in Paseo does not
-  carry over).
-- Stale detection needs a stored hash of the selection; otherwise "Out of date" is wrong.
-- Catalog is one ConfigMap read per session call; fine at 100 entries.
-
-## 6. Decisions needed from the user
-
-1. **Per-project full profile (recommended)** vs shared credential profile plus a thin project profile
-   (needs bootstrap/controller changes to mount two profiles).
-2. Confirm the missing catalog writer on the live cluster; ship PR 1 as a standalone fix first?
-3. Removing a project: keep profile objects and workspaces (recommended) or offer an explicit
-   "also delete workspaces" option?
-4. Allow URL-only projects (no project-level MCP config) or require a daemon checkout?
-5. Credential selection per project defaults to the Credentials tab (recommended) or must be chosen
-   each time?
-6. Project display name: derived from the URL (no gateway change) or editable (gateway change)?
-7. Does the Credentials tab keep the repository field for one more release, or move it immediately?
+## 8. Decisions needed from the user **[CHANGED: list replaced and renumbered]**
+1. **Option A (merge into per-project profiles, no operator/image change, recommended)** or B (shared
+   cluster provider set; requires coordinated operator + image + CRD release)?
+2. Codex subscription login: allow it as a shared provider with the refresh-token warning (recommended) or
+   restrict sharing to API keys only?
+3. Removing a project: keep profile objects and running workspaces (recommended) or offer an explicit
+   "also delete workspaces"?
+4. Allow URL-only projects (no project-level MCPs) or require a daemon checkout?
+5. Project MCPs from the checkout: selectable per project (recommended) or ignore them and only share
+   user-level MCPs?
+6. Does a project with no providers selected (subset empty) count as valid (clone-only), or must it have at
+   least one?
+7. Project display name: derived from the URL (no gateway change) or editable (gateway change, PR 5)?
+8. Ship PR 1 (catalog writer) as a standalone 0.2.x fix first (recommended, creation is broken today)?
