@@ -85,7 +85,45 @@ def checkout(root, repo):
         write_private(marker, json.dumps({'url': url}))
     return destination
 
-def prepare(root, secret_dir, config_dir, profile, alias_root=None):
+def load_files(directory):
+    files = json.loads((Path(directory) / 'files.json').read_text())
+    if not isinstance(files, dict) or not files.keys() <= ALLOWED_FILES:
+        raise ValueError('invalid credential bundle')
+    for name, content in files.items():
+        if not isinstance(content, str): raise ValueError('invalid credential file')
+        if name != 'config.toml': json.loads(content)
+    return files
+
+def merge_providers(files, provider_files, provider_files_subset=None, provider_mcps_subset=None):
+    """Merge the shared provider set under the project's own files. Project wins.
+
+    A subset of None means "all"; an empty collection means "none"."""
+    merged = {}
+    for name, content in provider_files.items():
+        if name == 'config.toml': continue
+        if provider_files_subset is None or name in provider_files_subset: merged[name] = content
+    settings = tomllib.loads(provider_files.get('config.toml', ''))
+    # The project owns the trusted-projects table; the provider set never contributes it.
+    settings.pop('projects', None)
+    servers = settings.get('mcp_servers')
+    if servers is not None:
+        if not isinstance(servers, dict): raise ValueError('invalid provider configuration')
+        if provider_mcps_subset is not None:
+            servers = {k: v for k, v in servers.items() if k in provider_mcps_subset}
+        settings['mcp_servers'] = servers
+    project = tomllib.loads(files['config.toml'])
+    project_servers = project.pop('mcp_servers', None)
+    settings.update(project)
+    if project_servers is not None:
+        if not isinstance(project_servers, dict): raise ValueError('invalid project configuration')
+        settings['mcp_servers'] = {**settings.get('mcp_servers', {}), **project_servers}
+    # Project-level files (normally only config.toml) override provider ones.
+    merged.update({k: v for k, v in files.items() if k != 'config.toml'})
+    merged['config.toml'] = dump_toml(settings)
+    return merged
+
+def prepare(root, secret_dir, config_dir, profile, alias_root=None, providers=None,
+            providers_secret_dir=None, provider_files=None, provider_mcps=None):
     root = Path(root)
     if root.is_symlink(): raise ValueError('unsafe workspace root')
     root.mkdir(parents=True, exist_ok=True)
@@ -93,13 +131,13 @@ def prepare(root, secret_dir, config_dir, profile, alias_root=None):
     if home.is_symlink() or (home.exists() and not home.is_dir()): raise ValueError('unsafe Codex home')
     home.mkdir(mode=0o700, exist_ok=True)
     home.chmod(0o700)
-    files = json.loads((Path(secret_dir) / 'files.json').read_text())
+    files = load_files(secret_dir)
     config = json.loads((Path(config_dir) / 'bootstrap.json').read_text())
-    if not isinstance(files, dict) or not files.keys() <= ALLOWED_FILES or 'config.toml' not in files:
-        raise ValueError('invalid credential bundle')
-    for name, content in files.items():
-        if not isinstance(content, str): raise ValueError('invalid credential file')
-        if name != 'config.toml': json.loads(content)
+    if 'config.toml' not in files: raise ValueError('invalid credential bundle')
+    if providers:
+        files = merge_providers(files, load_files(providers_secret_dir), provider_files, provider_mcps)
+        # Marker identity covers both objects so a new provider set refreshes pod copies.
+        profile = profile + '+' + providers
     settings = tomllib.loads(files['config.toml'])
     repo = config.get('repository')
     if repo and not config.get('trustRepository'): raise ValueError('repository has not been approved')
@@ -146,9 +184,17 @@ def main():
     parser.add_argument('--config', default='/var/run/paseo/config')
     parser.add_argument('--profile', required=True)
     parser.add_argument('--alias-root')
+    # Shared provider set (design: docs/design/projects-tab.md section 2). Absent = legacy pod.
+    parser.add_argument('--providers', help='provider set Secret name (also part of the marker)')
+    parser.add_argument('--providers-secrets', default='/var/run/paseo/providers/credentials')
+    parser.add_argument('--providers-config', default='/var/run/paseo/providers/config')
+    parser.add_argument('--provider-files', help='comma-separated provider files to keep; absent = all, empty = none')
+    parser.add_argument('--provider-mcps', help='comma-separated provider MCP servers to keep; absent = all, empty = none')
     args = parser.parse_args()
     try:
-        prepare(args.workspace, args.secrets, args.config, args.profile, args.alias_root)
+        subset = lambda v: None if v is None else {i for i in v.split(',') if i}
+        prepare(args.workspace, args.secrets, args.config, args.profile, args.alias_root, args.providers,
+                args.providers_secrets, subset(args.provider_files), subset(args.provider_mcps))
     except Exception:
         # Upstream parser/Git exceptions may embed secrets; never print their raw text.
         print('Workspace bootstrap failed. Check the selected snapshot, repository access and image dependencies.', file=sys.stderr)
