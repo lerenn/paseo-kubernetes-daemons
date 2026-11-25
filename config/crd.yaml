@@ -54,6 +54,21 @@ spec:
                     enabled:
                       type: boolean
                       default: false
+                    resources:
+                      type: object
+                      required: [requests, limits]
+                      properties:
+                        requests:
+                          type: object
+                          required: [cpu, memory, ephemeral-storage]
+                          additionalProperties: {type: string}
+                        limits:
+                          type: object
+                          required: [cpu, memory, ephemeral-storage]
+                          additionalProperties: {type: string}
+                    dataSize:
+                      type: string
+                      pattern: '^[1-9][0-9]*(Mi|Gi|Ti)$'
                 ephemeral:
                   type: boolean
                   default: false
@@ -77,6 +92,42 @@ spec:
                       type: string
                       maxLength: 63
                       pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                    providers:
+                      type: object
+                      required: [secretName, configMapName, envSecretName]
+                      properties:
+                        secretName:
+                          type: string
+                          maxLength: 63
+                          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                        configMapName:
+                          type: string
+                          maxLength: 63
+                          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                        envSecretName:
+                          type: string
+                          maxLength: 63
+                          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                        envKeys:
+                          type: array
+                          maxItems: 64
+                          items:
+                            type: string
+                            maxLength: 253
+                            pattern: '^[A-Za-z_][A-Za-z0-9_]*$'
+                        files:
+                          type: array
+                          maxItems: 2
+                          items:
+                            type: string
+                            enum: [auth.json, .credentials.json]
+                        mcps:
+                          type: array
+                          maxItems: 64
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
                 command:
                   type: array
                   minItems: 1
