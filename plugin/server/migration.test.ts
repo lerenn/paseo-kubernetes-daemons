@@ -59,6 +59,35 @@ test("provider set: three immutable objects, kind label, blanked refresh token, 
     assert.notEqual(refreshing.name, set.name);
   } finally { await f.cleanup(); }
 });
+test("claude login: only claudeAiOauth is exported, blanked unless refreshing; token goes to the env Secret", async () => {
+  const f = await fixture();
+  try {
+    const claudeHome = join(f.home, "..", "claude-home");
+    await mkdir(join(claudeHome, ".claude"), { recursive: true });
+    await writeFile(
+      join(claudeHome, ".claude", ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "PRIVATE_CLAUDE", refreshToken: "PRIVATE_CLAUDE_REFRESH", expiresAt: 5 }, mcpOAuth: { x: "PRIVATE_MCP" } }),
+    );
+    const opts = { ...f, claudeHome, env: { ...f.env, CLAUDE_CODE_OAUTH_TOKEN: "PRIVATE_LONG" } };
+    const sel = { ...selection, providers: ["claude-login", "claude-token"] };
+    const { writes, run } = recorder();
+    const c = conf();
+    const set = await syncProviders(c, sel, "srv", run, opts, undefined, {});
+    const files = JSON.parse(Buffer.from(writes[0].data["files.json"], "base64").toString());
+    const login = JSON.parse(files["claude-credentials.json"]);
+    assert.deepEqual(Object.keys(login), ["claudeAiOauth"]);
+    assert.equal(login.claudeAiOauth.accessToken, "PRIVATE_CLAUDE");
+    assert.equal(login.claudeAiOauth.refreshToken, "");
+    assert.ok(!files["claude-credentials.json"].includes("PRIVATE_MCP"));
+    assert.deepEqual(Object.keys(writes[1].data).sort(), ["CLAUDE_CODE_OAUTH_TOKEN", "DOCS_TOKEN"]);
+    assert.ok(!JSON.stringify(writes[2]).includes("PRIVATE_"));
+    const refreshing = await syncProviders(c, { ...sel, claudeMode: "refreshing" }, "srv", run, opts);
+    assert.notEqual(refreshing.name, set.name);
+    const w = writes.length;
+    await assert.rejects(syncProviders(c, sel, "srv", run, { ...opts, claudeHome: join(claudeHome, "none") }), /Claude subscription login/);
+    assert.equal(writes.length, w);
+  } finally { await f.cleanup(); }
+});
 test("project profile: project labels, thin config, subset validated against the set", async () => {
   const f = await fixture();
   try {

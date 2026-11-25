@@ -6,6 +6,8 @@ export const PROVIDER_LABELS: Record<string, string> = {
   "codex-login": "Codex subscription",
   "openai-key": "OpenAI API key",
   "anthropic-key": "Anthropic API key",
+  "claude-login": "Claude subscription login",
+  "claude-token": "Claude long-lived token",
   "gemini-key": "Gemini API key",
   "github-token": "GitHub repository access",
 };

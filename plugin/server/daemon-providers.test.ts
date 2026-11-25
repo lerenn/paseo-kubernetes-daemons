@@ -24,7 +24,7 @@ const providers = {
   "codex-backup": { extends: "codex", env: { OPENAI_API_KEY: "SECRET_D", CODEX_HOME: "/home/me/.codex-backup" } },
   bin: { extends: "claude", command: ["/home/me/bin/claude"] },
 };
-const facts = (ids: string[], claudeOauth = false) => ({ available: new Set(ids), claudeOauth });
+const facts = (ids: string[]) => ({ available: new Set(ids) });
 const rowsOf = (f = facts(["anthropic-key", "codex-login"]), selected: string[] = [], urls = {}, files: Record<string, string> = {}) =>
   listProviderRows(entries, providers, f, selected, urls, {
     readFile: async (p) => {
@@ -56,11 +56,20 @@ test("rows mirror the picker: built-ins then profiles, model counts, disabled hi
   assert.ok(!JSON.stringify(rows).includes("SECRET_"));
 });
 
-test("Claude with only an OAuth login is Missing with a hint; API key makes it Found", async () => {
-  const oauth = (await rowsOf(facts([], true))).find((r) => r.providerId === "claude")!;
-  assert.equal(oauth.found, false);
-  assert.match(oauth.hint!, /subscription login/);
-  assert.equal((await rowsOf(facts(["anthropic-key"]))).find((r) => r.providerId === "claude")!.found, true);
+test("built-in Claude prefers a long-lived token, then the login, then an API key", async () => {
+  const claude = async (ids: string[], selected: string[] = []) =>
+    (await rowsOf(facts(ids), selected)).find((r) => r.providerId === "claude")!;
+  assert.equal((await claude(["claude-token", "claude-login", "anthropic-key"])).id, "claude-token");
+  const login = await claude(["claude-login", "anthropic-key"]);
+  assert.equal(login.id, "claude-login");
+  assert.equal(login.found, true);
+  assert.match(login.hint!, /expires/);
+  assert.equal((await claude(["anthropic-key"])).id, "anthropic-key");
+  // An explicit selection wins over the preference.
+  assert.equal((await claude(["claude-token", "claude-login"], ["claude-login"])).id, "claude-login");
+  const none = await claude([]);
+  assert.equal(none.found, false);
+  assert.match(none.hint!, /setup-token/);
 });
 
 test("loopback URLs and local binaries and unreadable CODEX_HOME are flagged", async () => {
@@ -85,12 +94,13 @@ test("payload copies secrets, applies URL overrides and refuses unresolved loopb
     if (p === "/home/me/.codex-backup/auth.json") return JSON.stringify({ tokens: { access_token: "A", refresh_token: "R" } });
     throw new Error("ENOENT");
   };
-  await assert.rejects(buildProfilePayload(providers, ["profile:local"], {}, "access-only", { readFile: read }), /loopback/);
-  await assert.rejects(buildProfilePayload(providers, ["profile:local"], { "local/OPENAI_BASE_URL": "http://127.0.0.1/x" }, "access-only", { readFile: read }), /reachable/);
+  await assert.rejects(buildProfilePayload(providers, ["profile:local"], {}, "access-only", "access-only", { readFile: read }), /loopback/);
+  await assert.rejects(buildProfilePayload(providers, ["profile:local"], { "local/OPENAI_BASE_URL": "http://127.0.0.1/x" }, "access-only", "access-only", { readFile: read }), /reachable/);
   const p = await buildProfilePayload(
     providers,
     ["profile:local", "profile:codex-proxy", "profile:codex-backup", "profile:bin", "profile:gone", "anthropic-key"],
     { "local/OPENAI_BASE_URL": "https://proxy.example/v1" },
+    "access-only",
     "access-only",
     { readFile: read },
   );
@@ -109,9 +119,49 @@ test("payload copies secrets, applies URL overrides and refuses unresolved loopb
 test("a profile whose CODEX_HOME auth is unreadable is skipped, not fatal", async () => {
   const none = async () => { throw new Error("ENOENT"); };
   const noKey = { x: { extends: "codex", env: { CODEX_HOME: "/h/.c" } } };
-  const p = await buildProfilePayload(noKey, ["profile:x"], {}, "access-only", { readFile: none });
+  const p = await buildProfilePayload(noKey, ["profile:x"], {}, "access-only", "access-only", { readFile: none });
   assert.deepEqual(p.skipped.map((s) => s.id), ["x"]);
   const apiKeyAuth = async () => JSON.stringify({ OPENAI_API_KEY: "SECRET_E" });
-  const ok = await buildProfilePayload(providers, ["profile:codex-backup"], {}, "access-only", { readFile: apiKeyAuth });
+  const ok = await buildProfilePayload(providers, ["profile:codex-backup"], {}, "access-only", "access-only", { readFile: apiKeyAuth });
   assert.deepEqual(Object.keys(ok.profiles), ["codex-backup"]);
+});
+
+const login = JSON.stringify({ claudeAiOauth: { accessToken: "AT", refreshToken: "RT", expiresAt: 1 }, mcpOAuth: { leak: "LEAK" } });
+
+test("a profile's CLAUDE_CONFIG_DIR login is copied access-only without other keys", async () => {
+  const prov = { work: { extends: "claude", env: { CLAUDE_CONFIG_DIR: "/home/me/.claude-work" } } };
+  const read = async (p: string) => {
+    if (p === "/home/me/.claude-work/.credentials.json") return login;
+    throw new Error("ENOENT");
+  };
+  const p = await buildProfilePayload(prov, ["profile:work"], {}, "access-only", "access-only", { readFile: read });
+  const auth = JSON.parse(p.profiles.work.claudeAuth!);
+  assert.deepEqual(Object.keys(auth), ["claudeAiOauth"]);
+  assert.equal(auth.claudeAiOauth.refreshToken, "");
+  assert.equal(auth.claudeAiOauth.accessToken, "AT");
+  assert.equal((p.profiles.work.provider.env as any).CLAUDE_CONFIG_DIR, undefined);
+  assert.ok(!JSON.stringify(p.profiles.work.provider).includes("LEAK"));
+  const refreshing = await buildProfilePayload(prov, ["profile:work"], {}, "access-only", "refreshing", { readFile: read });
+  assert.equal(JSON.parse(refreshing.profiles.work.claudeAuth!).claudeAiOauth.refreshToken, "RT");
+  const rows = await listProviderRows(
+    [{ provider: "work", enabled: true, models: [{ id: "a" }] }], prov, facts([]), [], {}, { readFile: read });
+  assert.equal(rows[0].found, true);
+});
+
+test("an unreadable CLAUDE_CONFIG_DIR login is Missing and skipped unless the profile has its own key", async () => {
+  const none = async () => { throw new Error("ENOENT"); };
+  const prov = {
+    work: { extends: "claude", env: { CLAUDE_CONFIG_DIR: "/h/.c" } },
+    keyed: { extends: "claude", env: { CLAUDE_CONFIG_DIR: "/h/.c", ANTHROPIC_API_KEY: "SECRET_K" } },
+  };
+  const rows = await listProviderRows(
+    [], prov, facts([]), [], {}, { readFile: none });
+  assert.equal(rows.find((r) => r.providerId === "work")!.found, false);
+  assert.match(rows.find((r) => r.providerId === "work")!.hint!, /CLAUDE_CONFIG_DIR/);
+  assert.equal(rows.find((r) => r.providerId === "keyed")!.found, true);
+  const p = await buildProfilePayload(prov, ["profile:work", "profile:keyed"], {}, "access-only", "access-only", { readFile: none });
+  assert.deepEqual(p.skipped.map((s) => s.id), ["work"]);
+  assert.equal((p.profiles.keyed.provider.env as any).CLAUDE_CONFIG_DIR, undefined);
+  assert.equal((p.profiles.keyed.provider.env as any).ANTHROPIC_API_KEY, "SECRET_K");
+  assert.equal(p.profiles.keyed.claudeAuth, undefined);
 });

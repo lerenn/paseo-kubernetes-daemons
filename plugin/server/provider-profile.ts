@@ -5,7 +5,7 @@ import type { PaseoApi, PaseoProviderSnapshotResult } from '@getpaseo/client';
 export function providerProfile(snapshot: PaseoProviderSnapshotResult, selected: string[]) {
   const providers = new Set<string>();
   if (selected.includes('codex-login') || selected.includes('openai-key')) providers.add('codex');
-  if (selected.includes('anthropic-key')) providers.add('claude');
+  if (selected.some(id => id === 'anthropic-key' || id === 'claude-login' || id === 'claude-token')) providers.add('claude');
   if (selected.includes('gemini-key')) providers.add('gemini');
   // A selected provider profile appears under its own id, with its own label and models.
   for (const ref of selected) if (ref.startsWith('profile:')) providers.add(ref.slice('profile:'.length));

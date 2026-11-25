@@ -13,6 +13,8 @@ const HINTS: Record<string, string> = {
   "codex-login": "Use your existing subscription.",
   "github-token": "For private GitHub repositories (exported as GITHUB_TOKEN).",
   "anthropic-key": "Requires this provider in your workspace image.",
+  "claude-login": "Reuse your Claude subscription login (the access token only by default).",
+  "claude-token": "Recommended for pods: a one-year token from `claude setup-token`, exported as CLAUDE_CODE_OAUTH_TOKEN on the main daemon.",
   "gemini-key": "Requires this provider in your workspace image.",
 };
 
@@ -48,6 +50,16 @@ export function ProvidersTab(props: {
     (p) => !q || `${p.label} ${p.providerId} ${p.base}`.toLowerCase().includes(q),
   );
   const codex = value.selected.includes("codex-login");
+  const claudeLogin = value.selected.includes("claude-login");
+  const claudeWarning = () => (
+    <View style={{ paddingLeft: 30, gap: 4 }}>
+      <Text style={{ ...(text as object), color: theme.colors.statusWarning }}>
+        {value.claudeMode === "access-only"
+          ? "Access-only: pods get the short-lived access token without the refresh token. Claude in a pod stops working when it expires (about eight hours); sync providers again to renew it, or use a long-lived token from `claude setup-token` instead."
+          : "Refreshing: every pod gets the refresh token. Pods refresh independently and can invalidate each other's login (and yours)."}
+      </Text>
+    </View>
+  );
   const heading = {
     ...(text as object),
     fontWeight: "600" as const,
@@ -132,7 +144,7 @@ export function ProvidersTab(props: {
             const description = [
               p.models === null ? "" : plural(p.models, "model"),
               p.kind === "profile" ? `Profile · extends ${p.base}` : "",
-              p.hint ?? (p.id === "codex-login" ? HINTS["codex-login"] : ""),
+              p.hint ?? (p.id === "codex-login" || p.id === "claude-token" ? HINTS[p.id] : ""),
             ]
               .filter(Boolean)
               .join(" · ");
@@ -167,6 +179,7 @@ export function ProvidersTab(props: {
                     </Text>
                   </View>
                 )}
+                {p.id === "claude-login" && p.selected && claudeWarning()}
                 {p.selected &&
                   p.needsUrls.map((u) => (
                     <View key={u.name} style={{ paddingLeft: 30 }}>
@@ -202,6 +215,7 @@ export function ProvidersTab(props: {
                   state: p.state,
                   description: HINTS[p.id],
                   onChange: (on) => chooseProvider(p.id, on),
+                  extra: p.id === "claude-login" && p.selected ? claudeWarning() : undefined,
                 }),
               )}
             </View>
@@ -242,7 +256,7 @@ export function ProvidersTab(props: {
           )}
         </View>
       )}
-      <Disclosure theme={theme} label="Advanced provider settings" summary="Codex mode, OAuth cache & sync details">
+      <Disclosure theme={theme} label="Advanced provider settings" summary="Codex & Claude modes, OAuth cache & sync details">
         <Choice
           theme={theme}
           label="Refreshing Codex login"
@@ -250,6 +264,14 @@ export function ProvidersTab(props: {
           checked={value.codexMode === "refreshing"}
           onChange={(on) => set({ codexMode: on ? "refreshing" : "access-only" })}
           disabled={busy || !codex}
+        />
+        <Choice
+          theme={theme}
+          label="Refreshing Claude login"
+          description="Copy the Claude refresh token into pods so they can renew their own access. Off (access-only) is safer: Anthropic rotates refresh tokens, so whichever copy refreshes first can invalidate the others, including yours on the main host. Prefer a long-lived token (`claude setup-token`)."
+          checked={value.claudeMode === "refreshing"}
+          onChange={(on) => set({ claudeMode: on ? "refreshing" : "access-only" })}
+          disabled={busy || !claudeLogin}
         />
         {status?.oauthFile && (
           <Choice

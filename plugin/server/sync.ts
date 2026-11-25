@@ -60,6 +60,7 @@ export const providerSelection = (c: Configuration): ProviderSelection => ({
   profileUrls: c.providers.profileUrls,
   includeMcpOAuthFile: c.providers.includeMcpOAuthFile,
   codexMode: c.providers.codexMode,
+  claudeMode: c.providers.claudeMode,
 });
 
 // Nothing is written to a cluster whose operator or CRD cannot honour provider sets.

@@ -30,7 +30,10 @@ sidebar menu. The panel checks for the operator and guides setup.
    API keys included (secret at rest in the provider Secret, never shown in the panel).
    A profile pointing at a loopback URL needs a reachable URL override; a profile whose
    `CODEX_HOME` is a local directory has its `auth.json` copied to a pod-local home, or shows
-   Missing when unreadable. Claude subscription (OAuth) logins cannot be copied; use `ANTHROPIC_API_KEY`.
+   Missing when unreadable. The Claude subscription login is supported
+   too: preferably as a long-lived token (`claude setup-token`, exported as
+   `CLAUDE_CODE_OAUTH_TOKEN` on the main daemon), otherwise as the file-backed login
+   (`~/.claude/.credentials.json`, or a profile's `CLAUDE_CONFIG_DIR`), copied access-only.
 4. On the **Projects** tab, add a repository by URL or local checkout, approve it
    once for new pods, and **Sync project**. The **Overview** tab tracks these steps.
    Optionally size new pods (CPU, memory, storage, Docker sidecar) on the **Pods** tab;

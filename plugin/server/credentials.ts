@@ -8,7 +8,7 @@ import { parse, stringify } from "smol-toml";
 import type { z } from "zod";
 import type { PaseoProviderSnapshotResult } from "@getpaseo/client";
 import { providerProfile } from "./provider-profile.js";
-import { buildProfilePayload, profileIdOf, profileRefOf } from "./daemon-providers.js";
+import { buildProfilePayload, claudeDir, profileIdOf, profileRefOf, readClaudeLogin } from "./daemon-providers.js";
 import { syncSelection } from "../shared/contracts.js";
 import { scopeOf, type Configuration } from "../shared/settings.js";
 import { applyOwned, connection, type Kubectl } from "./kubernetes.js";
@@ -16,12 +16,14 @@ const exec = promisify(execFile);
 const providerEnv = {
   "openai-key": "OPENAI_API_KEY",
   "anthropic-key": "ANTHROPIC_API_KEY",
+  "claude-token": "CLAUDE_CODE_OAUTH_TOKEN",
   "gemini-key": "GEMINI_API_KEY",
   "github-token": "GITHUB_TOKEN",
 } as const;
 const labels = {
   "openai-key": "OpenAI API key",
   "anthropic-key": "Anthropic API key (Claude Code)",
+  "claude-token": "Claude long-lived token (claude setup-token)",
   "gemini-key": "Gemini API key (install its provider in the image)",
   "github-token": "GitHub token for HTTPS repository checkout",
 };
@@ -197,8 +199,20 @@ export async function discover(repositoryPath: string, o: SourceOptions = {}) {
   } catch {
     /* unavailable or keychain-only */
   }
+  let claudeLogin = false;
+  try {
+    await readClaudeLogin(claudeDir(o), "access-only");
+    claudeLogin = true;
+  } catch {
+    /* unavailable or keychain-only */
+  }
   return {
     providers: [
+      {
+        id: "claude-login",
+        label: "Claude subscription login (file-backed)",
+        available: claudeLogin,
+      },
       {
         id: "codex-login",
         label: "Codex subscription login (file-backed)",
@@ -496,6 +510,7 @@ export interface ProviderSelection {
   mcpUrls: Record<string, string>;
   includeMcpOAuthFile: boolean;
   codexMode: "access-only" | "refreshing";
+  claudeMode?: "access-only" | "refreshing";
 }
 export async function syncProviders(
   c: Configuration,
@@ -530,8 +545,17 @@ export async function syncProviders(
       );
     }
   }
+  if (selection.providers.includes("claude-login")) {
+    try {
+      files["claude-credentials.json"] = await readClaudeLogin(claudeDir(o), selection.claudeMode ?? "access-only");
+    } catch {
+      throw new Error(
+        "A file-backed Claude subscription login is required. Log in with Claude Code on the main host first.",
+      );
+    }
+  }
   for (const provider of selection.providers) {
-    if (provider === "codex-login" || profileIdOf(provider)) continue;
+    if (provider === "codex-login" || provider === "claude-login" || profileIdOf(provider)) continue;
     const key = providerEnv[provider as keyof typeof providerEnv];
     if (!env[key])
       throw new Error(
@@ -544,6 +568,7 @@ export async function syncProviders(
     selection.providers,
     selection.profileUrls ?? {},
     selection.codexMode,
+    selection.claudeMode ?? "access-only",
   );
   const skipped = new Set(exported.skipped.map((x) => profileRefOf(x.id)));
   selection = { ...selection, providers: selection.providers.filter((p) => !skipped.has(p)) };

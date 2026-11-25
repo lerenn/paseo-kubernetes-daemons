@@ -180,6 +180,7 @@ export const providersStatus = defineRpc({
     ),
     oauthFile: z.boolean(),
     codexMode: providersSchema.shape.codexMode,
+    claudeMode: providersSchema.shape.claudeMode,
     includeMcpOAuthFile: z.boolean(),
     lastSync: providersSchema.shape.lastSync,
     set: z

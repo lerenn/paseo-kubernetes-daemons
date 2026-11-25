@@ -21,12 +21,15 @@ const (
 const (
 	profilePrefix = "profile:"
 	profilesFile  = "paseo-providers.json"
+	// The Claude subscription login ({"claudeAiOauth": ...}), written to the pod's Claude config dir.
+	claudeFile = "claude-credentials.json"
 )
 
 // providerEnvKeys maps a provider credential id to the environment variable it supplies.
 var providerEnvKeys = map[string]string{
 	"openai-key":    "OPENAI_API_KEY",
 	"anthropic-key": "ANTHROPIC_API_KEY",
+	"claude-token":  "CLAUDE_CODE_OAUTH_TOKEN",
 	"gemini-key":    "GEMINI_API_KEY",
 	"github-token":  "GITHUB_TOKEN",
 }
@@ -200,7 +203,7 @@ func (d *profileData) check(requirements Requirements) error {
 		}
 	}
 	if requirements.Provider != "" && !profile {
-		allowed := map[string][]string{"codex": {"codex-login", "openai-key"}, "claude": {"anthropic-key"}, "gemini": {"gemini-key"}}
+		allowed := map[string][]string{"codex": {"codex-login", "openai-key"}, "claude": {"claude-login", "claude-token", "anthropic-key"}, "gemini": {"gemini-key"}}
 		matched := false
 		for _, credential := range allowed[requirements.Provider] {
 			for _, selected := range providers {
@@ -224,6 +227,15 @@ func (d *profileData) check(requirements Requirements) error {
 				usable = json.Unmarshal([]byte(authFiles["auth.json"]), &auth) == nil && auth.Tokens.AccessToken != ""
 			case requirements.Provider == "codex" && selected == "openai-key":
 				usable = len(env.Data["OPENAI_API_KEY"]) > 0
+			case requirements.Provider == "claude" && selected == "claude-login":
+				var auth struct {
+					OAuth struct {
+						AccessToken string `json:"accessToken"`
+					} `json:"claudeAiOauth"`
+				}
+				usable = json.Unmarshal([]byte(authFiles[claudeFile]), &auth) == nil && auth.OAuth.AccessToken != ""
+			case requirements.Provider == "claude" && selected == "claude-token":
+				usable = len(env.Data["CLAUDE_CODE_OAUTH_TOKEN"]) > 0
 			case requirements.Provider == "claude" && selected == "anthropic-key":
 				usable = len(env.Data["ANTHROPIC_API_KEY"]) > 0
 			case requirements.Provider == "gemini" && selected == "gemini-key":
@@ -267,6 +279,11 @@ func (d *profileData) providerRefs(name string) map[string]interface{} {
 		}
 		if key := providerEnvKeys[id]; key != "" {
 			envKeys[key] = true
+		}
+		if id == "claude-login" {
+			if _, ok := d.Set.files[claudeFile]; ok {
+				files = append(files, claudeFile)
+			}
 		}
 		if id == "codex-login" {
 			if _, ok := d.Set.files["auth.json"]; ok {
