@@ -19,7 +19,27 @@ import {
   discoverSources,
   syncCredentials,
   openEnvironment,
+  providersStatus,
+  providersSync,
+  projectsList,
+  projectsDiscover,
+  projectsAdd,
+  projectsUpdate,
+  projectsApprove,
+  projectsRemove,
+  projectsSync,
+  projectsCatalog,
 } from "./shared/contracts.js";
+import { syncAllProviders, syncOneProject, refreshCatalog } from "./server/sync.js";
+import {
+  addProject,
+  updateProject,
+  approveProject,
+  removeProject,
+  projectsStatus,
+  providersStatus as buildProvidersStatus,
+} from "./server/projects.js";
+import { discoverProject } from "./server/credentials.js";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(workspaceSettings);
@@ -58,10 +78,45 @@ export default function contribute(server: PluginServerContext) {
     if (result.operator !== "ready") return result;
     attach(paseo);
     // Automatic, idempotent migration of the legacy profile; never fails the inspection.
-    const migration = await reconcile(c, result, await catalogDeps(paseo, c)).catch(
-      () => ({ migrated: false, error: "The catalog could not be updated." }),
-    );
-    return { ...result, ...(migration.error ? { migrationError: migration.error } : {}) };
+    const migration: Awaited<ReturnType<typeof reconcile>> = await reconcile(
+      c,
+      result,
+      await catalogDeps(paseo, c),
+    ).catch(() => ({ migrated: false, error: "The catalog could not be updated." }));
+    return {
+      ...result,
+      ...(migration.split ? { split: migration.split } : {}),
+      ...(migration.error ? { migrationError: migration.error } : {}),
+    };
+  });
+  const serverId = async (paseo: PaseoApi) => (await paseo.hosts.list()).self.serverId;
+  server.handle(providersStatus, async () => {
+    const c = await configuration();
+    return buildProvidersStatus(c, connection(c));
+  });
+  server.handle(providersSync, async (_, { paseo }) => {
+    const c = await configuration();
+    return syncAllProviders(c, await catalogDeps(paseo, c));
+  });
+  server.handle(projectsList, async (_, { paseo }) => {
+    const c = await configuration();
+    return projectsStatus(c, await serverId(paseo), connection(c));
+  });
+  server.handle(projectsDiscover, async ({ path }) => discoverProject(path));
+  server.handle(projectsAdd, async (input) => addProject(await configuration(), input));
+  server.handle(projectsUpdate, async (input) => updateProject(await configuration(), input));
+  server.handle(projectsApprove, async (input) => approveProject(await configuration(), input));
+  server.handle(projectsRemove, async ({ id }) => {
+    const c = await configuration();
+    return removeProject(c, id, connection(c));
+  });
+  server.handle(projectsSync, async ({ id }, { paseo }) => {
+    const c = await configuration();
+    return syncOneProject(c, id, await catalogDeps(paseo, c));
+  });
+  server.handle(projectsCatalog, async (_, { paseo }) => {
+    const c = await configuration();
+    return refreshCatalog(c, await catalogDeps(paseo, c));
   });
   server.handle(discoverSources, async ({ repositoryPath }) =>
     discover(repositoryPath),

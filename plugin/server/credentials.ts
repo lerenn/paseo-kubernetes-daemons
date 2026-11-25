@@ -67,6 +67,16 @@ function mcpEntries(config: Record<string, unknown>) {
     throw new Error("Invalid mcp_servers table.");
   return m as Record<string, Mcp>;
 }
+export function assertRevision(revision: string) {
+  if (
+    revision &&
+    (!/^[A-Za-z0-9][A-Za-z0-9._/@+-]*$/.test(revision) ||
+      revision.includes(".."))
+  )
+    throw new Error(
+      "Use a branch, tag or commit name without whitespace or option prefixes.",
+    );
+}
 export function repositoryUrl(raw: string) {
   if (/^git@[a-zA-Z0-9.-]+:[a-zA-Z0-9_./-]+$/.test(raw)) return raw;
   try {
@@ -117,6 +127,8 @@ async function sources(repositoryPath: string, o: SourceOptions) {
     root,
     url,
     mcps: { ...mcpEntries(global), ...mcpEntries(project) },
+    // Servers defined only in the repository's own .codex/config.toml.
+    projectOnly: mcpEntries(project),
   };
 }
 function environmentNames(m: Mcp): string[] {
@@ -150,6 +162,26 @@ function loopback(url: unknown) {
     return false;
   }
 }
+function mcpRow(name: string, m: Mcp, env: NodeJS.ProcessEnv) {
+  const names = environmentNames(m);
+  return {
+    name,
+    transport: typeof m.url === "string" ? "HTTP" : "STDIO",
+    environment: names,
+    missing: names.filter((k) => !env[k]),
+    needsUrl: loopback(m.url),
+  };
+}
+// A local checkout: its canonical origin URL and the MCP servers only that repository defines.
+export async function discoverProject(path: string, o: SourceOptions = {}) {
+  if (!path) throw new Error("Choose a repository checkout.");
+  const s = await sources(path, o);
+  const env = o.env ?? process.env;
+  return {
+    repositoryUrl: s.url,
+    mcps: Object.entries(s.projectOnly).map(([n, m]) => mcpRow(n, m, env)),
+  };
+}
 export async function discover(repositoryPath: string, o: SourceOptions = {}) {
   const s = await sources(repositoryPath, o);
   const env = o.env ?? process.env;
@@ -175,16 +207,7 @@ export async function discover(repositoryPath: string, o: SourceOptions = {}) {
         available: !!env[key],
       })),
     ],
-    mcps: Object.entries(s.mcps).map(([name, m]) => {
-      const names = environmentNames(m);
-      return {
-        name,
-        transport: typeof m.url === "string" ? "HTTP" : "STDIO",
-        environment: names,
-        missing: names.filter((k) => !env[k]),
-        needsUrl: loopback(m.url),
-      };
-    }),
+    mcps: Object.entries(s.mcps).map(([name, m]) => mcpRow(name, m, env)),
     oauthFile: await exists(join(s.home, ".credentials.json")),
     repositoryUrl: s.url,
   };
@@ -572,19 +595,14 @@ export async function syncProject(
   serverId: string,
   run: Kubectl = connection(c),
   o: SourceOptions = {},
+  // False computes the content-addressed names without touching the cluster (staleness checks).
+  write = true,
 ) {
   if (!project.trusted)
     throw new Error(
       "Approve this repository before exporting its project configuration.",
     );
-  if (
-    project.revision &&
-    (!/^[A-Za-z0-9][A-Za-z0-9._/@+-]*$/.test(project.revision) ||
-      project.revision.includes(".."))
-  )
-    throw new Error(
-      "Use a branch, tag or commit name without whitespace or option prefixes.",
-    );
+  assertRevision(project.revision);
   const url = repositoryUrl(project.repository);
   if (project.providerSubset)
     for (const id of project.providerSubset)
@@ -630,15 +648,16 @@ export async function syncProject(
   const owner = ownerOf(serverId, c);
   const id = projectId(url);
   const name = `pw-profile-${owner}-${digest({ files, vars, bootstrap })}`;
-  await applyTriple(
-    run,
-    owner,
-    c.namespace,
-    name,
-    { "workspaces.paseo.sh/kind": "project", "workspaces.paseo.sh/project": id },
-    files,
-    vars,
-    { "bootstrap.json": JSON.stringify(bootstrap) },
-  );
+  if (write)
+    await applyTriple(
+      run,
+      owner,
+      c.namespace,
+      name,
+      { "workspaces.paseo.sh/kind": "project", "workspaces.paseo.sh/project": id },
+      files,
+      vars,
+      { "bootstrap.json": JSON.stringify(bootstrap) },
+    );
   return { name, owner, id };
 }
