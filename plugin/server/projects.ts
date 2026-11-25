@@ -14,6 +14,7 @@ import {
   syncProject,
   type SourceOptions,
 } from "./credentials.js";
+import { mergePods, validatePods, type PodsOverride } from "../shared/pods.js";
 import { effectiveProjects } from "./catalog.js";
 import { projectInput, readProviderSet, type SetInfo } from "./sync.js";
 
@@ -97,7 +98,12 @@ export interface UpdateInput {
   projectMcps?: string[];
   // null clears the checkout / an override.
   path?: string | null;
-  overrides?: { image?: string | null; docker?: boolean | null; ephemeral?: boolean | null };
+  overrides?: {
+    image?: string | null;
+    docker?: boolean | null;
+    ephemeral?: boolean | null;
+    pods?: PodsOverride | null;
+  };
 }
 export async function updateProject(c: Configuration, input: UpdateInput, o: SourceOptions = {}) {
   const p = find(c, input.id);
@@ -120,6 +126,8 @@ export async function updateProject(c: Configuration, input: UpdateInput, o: Sou
     projectMcps: path ? mcps : [],
     overrides,
   });
+  const issue = validatePods(mergePods(c.pods, next.overrides.pods))[0];
+  if (issue) throw new Error(`Invalid pod settings: ${issue.path}: ${issue.message}`);
   // The repository (and so the id) never changes here: a new URL is a new project.
   return { project: next, projects: replace(c, p, next) };
 }

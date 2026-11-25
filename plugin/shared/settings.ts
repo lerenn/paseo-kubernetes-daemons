@@ -1,5 +1,6 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
+import { podsSchema, podsOverrideSchema } from "./pods.js";
 export const resourceName = z
   .string()
   .max(63)
@@ -49,6 +50,8 @@ export const projectSchema = z.object({
       image: z.string().max(500).optional(),
       docker: z.boolean().optional(),
       ephemeral: z.boolean().optional(),
+      // Partial pod settings; absent fields use settings.pods.
+      pods: podsOverrideSchema.optional(),
     })
     .default({}),
   synced: z
@@ -69,6 +72,8 @@ export const settingsSchema = z.object({
   gatewayHostName: z.string().max(100).default(""),
   docker: z.boolean().default(false),
   ephemeral: z.boolean().default(true),
+  // Global pod defaults (compute, storage, Docker sidecar); see shared/pods.ts.
+  pods: podsSchema.default(podsSchema.parse({})),
   // Legacy full profile (settings v1). Kept until the split into provider set + project has run.
   bundle: bundleSchema.nullable().default(null),
   providers: providersSchema.default(providersSchema.parse({})),

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,6 +34,13 @@ type Provisioner struct {
 	Docker         bool
 	Persistent     bool
 	MainConnection string
+	// Optional pod settings from the catalog; zero values keep the built-in defaults (see pods.go).
+	// They only apply to workspaces created afterwards: existing() never compares them.
+	Resources        *corev1.ResourceRequirements
+	Storage          string
+	StorageClassName string
+	DockerResources  *corev1.ResourceRequirements
+	DockerDataSize   string
 	// PendingGrace overrides DefaultPendingGrace (negative reports immediately).
 	PendingGrace time.Duration
 }
@@ -107,17 +115,17 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 	obj.SetName(name)
 	obj.SetNamespace(p.Namespace)
 	obj.SetAnnotations(map[string]string{requestAnnotation: digest, optionsAnnotation: optionsDigest})
-	storage := "4Gi"
-	if p.Persistent {
-		storage = "10Gi"
-	}
-	obj.Object["spec"] = map[string]interface{}{
+	spec := map[string]interface{}{
 		"gateway": true,
-		"image":   p.Image, "ephemeral": !p.Persistent, "storage": storage, "workingDirectory": workingDirectory,
-		"docker":    map[string]interface{}{"enabled": p.Docker},
+		"image":   p.Image, "ephemeral": !p.Persistent, "storage": p.storageSize(), "workingDirectory": workingDirectory,
+		"docker":    p.dockerSpec(),
 		"bootstrap": bootstrapSpec,
-		"resources": map[string]interface{}{"requests": map[string]interface{}{"cpu": "250m", "memory": "512Mi", "ephemeral-storage": "1Gi"}, "limits": map[string]interface{}{"cpu": "2", "memory": "4Gi", "ephemeral-storage": "4Gi"}},
+		"resources": p.computeResources(),
 	}
+	if p.StorageClassName != "" {
+		spec["storageClassName"] = p.StorageClassName
+	}
+	obj.Object["spec"] = spec
 	if err := p.Client.Create(ctx, obj); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
 			return nil, fmt.Errorf("create workspace: %w", err)

@@ -5,12 +5,13 @@ import {
   type Project,
 } from "../shared/settings.js";
 import { projectId } from "./credentials.js";
+import { catalogPods, mergePods, validatePods, type CatalogPods } from "../shared/pods.js";
 
 export const CATALOG_NAME = "paseo-workspaces-gateway";
 export const CATALOG_LIMIT = 100;
 
 // Read by internal/gateway/configuration.go (ProfileConfiguration).
-export interface CatalogEntry {
+export interface CatalogEntry extends Partial<CatalogPods> {
   profile: string;
   providers?: string;
   image: string;
@@ -78,13 +79,20 @@ export function buildCatalog(
     if (!names) continue;
     if (names.providerSet && !options.crdCurrent) continue;
     const mainConnection = c.mainConnection;
+    const docker = project.overrides.docker ?? c.docker;
+    const ephemeral = project.overrides.ephemeral ?? c.ephemeral;
+    const pods = mergePods(c.pods, project.overrides.pods);
+    const issue = validatePods(pods)[0];
+    if (issue)
+      throw new Error(`Invalid pod settings for ${project.repository}: ${issue.path}: ${issue.message}`);
     entries.push({
       profile: names.profile,
       ...(names.providerSet ? { providers: names.providerSet } : {}),
       image: project.overrides.image ?? c.image,
-      docker: project.overrides.docker ?? c.docker,
-      ephemeral: project.overrides.ephemeral ?? c.ephemeral,
+      docker,
+      ephemeral,
       ...(mainConnection ? { mainConnection } : {}),
+      ...catalogPods(pods, docker, ephemeral),
     });
   }
   if (entries.length > CATALOG_LIMIT)

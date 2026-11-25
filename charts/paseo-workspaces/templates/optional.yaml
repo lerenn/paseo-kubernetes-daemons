@@ -13,10 +13,26 @@ rules:
   - apiGroups: ['']
     resources: [secrets, configmaps]
     verbs: [get, create, patch]
+  - apiGroups: ['']
+    resources: [resourcequotas]
+    verbs: [get, list]
   - apiGroups: [apps]
     resources: [deployments]
     resourceNames: [paseo-workspaces-operator]
     verbs: [get]
+---
+{{- end }}
+{{- if .Values.pluginRole.clusterReadEnabled }}
+# Optional: lets the Pods tab list storage classes (cluster-scoped). Bind it to the main daemon's ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-paseo-workspaces-plugin-storageclasses
+  labels: {{- include "pw.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list]
 ---
 {{- end }}
 {{- if .Values.quota.enabled }}

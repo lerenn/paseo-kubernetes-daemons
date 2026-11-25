@@ -40,6 +40,21 @@ kubectl -n paseo-workspaces create rolebinding paseo-main-workspaces \
   --serviceaccount=main-daemon-namespace:main-daemon-serviceaccount
 ```
 
+The Role can also read `resourcequotas`, which the Pods settings use for capacity
+warnings. Storage classes are cluster-scoped: to let the Pods settings list them
+(and warn when a class cannot expand volumes), bind the optional ClusterRole from
+`config/plugin-rbac.yaml` (chart: `pluginRole.clusterReadEnabled=true`) to the same
+ServiceAccount:
+
+```sh
+kubectl create clusterrolebinding paseo-main-workspaces-storageclasses \
+  --clusterrole=paseo-workspaces-plugin-storageclasses \
+  --serviceaccount=main-daemon-namespace:main-daemon-serviceaccount
+```
+
+Without it the storage class stays a free-text field. Either way both reads are
+optional: a forbidden request just hides the warnings.
+
 For an external main daemon, give its kubeconfig equivalent permissions. The main
 host needs `kubectl` and network access to pod Services. The operator needs no
 Secret-reading permissions; Kubernetes mounts the selected resources into pods.
@@ -56,6 +71,15 @@ paseo plugin install "$PWD"
 # Existing installation:
 # paseo plugin reload kubernetes-workspaces
 ```
+
+### Pod settings
+
+Compute, storage and Docker sidecar settings of new pods default to the former
+built-in values (requests 250m/512Mi/1Gi scratch, limits 2/4Gi/4Gi; storage 4Gi
+ephemeral or 10Gi persistent; sidecar requests 250m/256Mi/1Gi, limits 2/2Gi/12Gi,
+10Gi data) and can be overridden per project. They only affect workspaces created
+afterwards: a workspace spec is immutable. A namespace quota *rejects* a pod that
+exceeds it (the operator retries); a node-capacity shortfall leaves the pod Pending.
 
 ### Docker sidecar settings
 

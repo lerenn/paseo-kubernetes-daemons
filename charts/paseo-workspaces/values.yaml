@@ -39,8 +39,11 @@ gateway:
 # Role for the ServiceAccount running the MAIN daemon (the companion plugin). Bind it yourself.
 pluginRole:
   enabled: true
+  # Also create a ClusterRole to read storage classes (cluster-scoped) for the Pods tab. Optional.
+  clusterReadEnabled: false
 
-# Optional admission limits. Excess pods stay Pending until capacity is freed.
+# Optional admission limits. A pod create that exceeds them is rejected and retried by the operator;
+# pods that fit the quota but not the nodes stay Pending until capacity is freed.
 quota:
   enabled: false
   hard:

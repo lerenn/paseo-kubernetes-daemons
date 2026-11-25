@@ -11,7 +11,25 @@ rules:
   - apiGroups: ['']
     resources: [secrets, configmaps]
     verbs: [get, create, patch]
+  # Optional capacity warnings on the Pods tab: read the namespace quota.
+  - apiGroups: ['']
+    resources: [resourcequotas]
+    verbs: [get, list]
   - apiGroups: [apps]
     resources: [deployments]
     resourceNames: [paseo-workspaces-operator]
     verbs: [get]
+---
+# OPTIONAL. storageclasses are cluster-scoped, so reading them needs a ClusterRole. Without it the
+# Pods tab falls back to a free-text storage class name and shows no volume-expansion warning.
+# Bind it to the same ServiceAccount as the Role above, e.g.:
+#   kubectl create clusterrolebinding paseo-workspaces-plugin-storageclasses \
+#     --clusterrole=paseo-workspaces-plugin-storageclasses --serviceaccount=<ns>:<main-daemon-sa>
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: paseo-workspaces-plugin-storageclasses
+rules:
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list]

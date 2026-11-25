@@ -5,13 +5,52 @@
     "image": "ghcr.io/lerenn/paseo-workspace:0.3.0",
     "docker": true,
     "ephemeral": false,
-    "mainConnection": "main:6767"
+    "mainConnection": "main:6767",
+    "resources": {
+      "requests": {
+        "cpu": "250m",
+        "memory": "512Mi",
+        "ephemeral-storage": "1Gi"
+      },
+      "limits": {
+        "cpu": "4",
+        "memory": "4Gi",
+        "ephemeral-storage": "4Gi"
+      }
+    },
+    "storage": "20Gi",
+    "storageClassName": "fast",
+    "dockerResources": {
+      "requests": {
+        "cpu": "250m",
+        "memory": "256Mi",
+        "ephemeral-storage": "1Gi"
+      },
+      "limits": {
+        "cpu": "2",
+        "memory": "2Gi",
+        "ephemeral-storage": "12Gi"
+      }
+    },
+    "dockerDataSize": "30Gi"
   },
   {
     "profile": "pw-profile-o-legacy",
     "image": "ghcr.io/lerenn/paseo-workspace:0.3.0",
     "docker": false,
     "ephemeral": true,
-    "mainConnection": "main:6767"
+    "mainConnection": "main:6767",
+    "resources": {
+      "requests": {
+        "cpu": "250m",
+        "memory": "512Mi",
+        "ephemeral-storage": "1Gi"
+      },
+      "limits": {
+        "cpu": "2",
+        "memory": "4Gi",
+        "ephemeral-storage": "4Gi"
+      }
+    }
   }
 ]
