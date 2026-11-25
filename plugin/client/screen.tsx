@@ -38,6 +38,8 @@ import {
   projectsRemove,
   projectsSync,
   projectsCatalog,
+  podsStatus,
+  podsCheck,
   createEnvironment,
   listEnvironments,
   releaseEnvironment,
@@ -46,12 +48,14 @@ import {
 import type { z } from "zod";
 import { ProvidersTab, type ProvidersStatus } from "./providers-tab.js";
 import { ProjectsTab, type ProjectRow, type ProjectsActions } from "./projects-tab.js";
-import { applySynced, plural } from "./view.js";
+import { PodsTab, type PodsStatus, type CheckPods } from "./pods-tab.js";
+import { applySynced, pendingReason, PENDING_HELP, plural } from "./view.js";
 const TABS = [
   { id: "overview", label: "Overview", icon: "Gauge" },
   { id: "cluster", label: "Cluster", icon: "Server" },
   { id: "providers", label: "Providers", icon: "KeyRound" },
   { id: "projects", label: "Projects", icon: "FolderGit2" },
+  { id: "pods", label: "Pods", icon: "Cpu" },
   { id: "workspaces", label: "Workspaces", icon: "Boxes" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
@@ -82,6 +86,8 @@ export function WorkspaceScreen({
     removeProject = useRpc(projectsRemove),
     syncProject = useRpc(projectsSync),
     refreshCatalog = useRpc(projectsCatalog),
+    podsStatusRpc = useRpc(podsStatus),
+    podsCheckRpc = useRpc(podsCheck),
     create = useRpc(createEnvironment),
     list = useRpc(listEnvironments),
     release = useRpc(releaseEnvironment),
@@ -90,6 +96,7 @@ export function WorkspaceScreen({
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const loadProvidersRef = useRef<() => Promise<void>>(async () => {});
+  const loadPodsRef = useRef<() => Promise<void>>(async () => {});
   const loadProjectsRef = useRef<() => Promise<void>>(async () => {});
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -98,6 +105,7 @@ export function WorkspaceScreen({
   > | null>(null);
   const [providerStatus, setProviderStatus] =
     useState<ProvidersStatus | null>(null);
+  const [podsInfo, setPodsInfo] = useState<PodsStatus | null>(null);
   const [projectRows, setProjectRows] = useState<ProjectRow[] | null>(null);
   const [name, setName] = useState(""),
     [rows, setRows] = useState<Environment[]>([]);
@@ -129,6 +137,7 @@ export function WorkspaceScreen({
     if (settings.status !== "ready") return;
     if (tab === "providers") void loadProvidersRef.current();
     if (tab === "projects") void loadProjectsRef.current();
+    if (tab === "pods") void loadPodsRef.current();
   }, [tab, settings.status === "ready" ? settings.revision : ""]);
   async function action(fn: () => Promise<void>) {
     setBusy(true);
@@ -222,6 +231,11 @@ export function WorkspaceScreen({
   const loadProjects = async () => {
     setProjectRows((await listProjects({})).projects);
   };
+  const loadPods = async () => {
+    setPodsInfo(await podsStatusRpc({}));
+  };
+  const checkPods: CheckPods = (input) => podsCheckRpc(input);
+  loadPodsRef.current = () => loadPods().catch(() => {});
   loadProvidersRef.current = () => loadProviders().catch(() => {});
   loadProjectsRef.current = () => loadProjects().catch(() => {});
   // Saves settings, then waits for the new revision: a second save in the same action needs it.
@@ -802,6 +816,31 @@ export function WorkspaceScreen({
               saved={saved}
               connected={connected}
               actions={projectActions}
+              podsGlobal={draft.pods}
+              globalDocker={draft.docker}
+              globalEphemeral={draft.ephemeral}
+              checkPods={checkPods}
+            />
+          )}
+          {tab === "pods" && (
+            <PodsTab
+              theme={theme}
+              text={text}
+              value={draft.pods}
+              status={podsInfo}
+              docker={draft.docker}
+              ephemeral={draft.ephemeral}
+              busy={busy}
+              saved={saved}
+              check={checkPods}
+              onChange={(next) => patch("pods", next)}
+              onRefresh={() => void action(loadPods)}
+              onSave={() =>
+                void action(async () => {
+                  await save();
+                  if (connected) await refreshCatalog({});
+                })
+              }
             />
           )}
           {tab === "workspaces" && (
@@ -936,7 +975,7 @@ export function WorkspaceScreen({
                         tone={
                           row.hostStatus === "online"
                             ? "success"
-                            : row.phase === "Failed"
+                            : row.phase === "Failed" || row.phase === "Pending"
                               ? "warning"
                               : "muted"
                         }
@@ -963,7 +1002,16 @@ export function WorkspaceScreen({
                         onPress={() => setDeleting(row.name)}
                       />
                     </View>
-                    {row.message && <Text style={text}>{row.message}</Text>}
+                    {pendingReason(row.phase, row.message ?? "") ? (
+                      <View style={{ gap: 4 }}>
+                        <Text style={{ ...text, color: theme.colors.statusWarning }}>
+                          Pending: {row.message}
+                        </Text>
+                        <Text style={text}>{PENDING_HELP} Pod sizes are set on the Pods tab.</Text>
+                      </View>
+                    ) : (
+                      row.message && <Text style={text}>{row.message}</Text>
+                    )}
                     {row.error?.message && (
                       <Text
                         style={{ ...text, color: theme.colors.statusDanger }}

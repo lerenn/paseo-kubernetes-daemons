@@ -26,6 +26,8 @@ sidebar menu. The panel checks for the operator and guides setup.
    Only references are saved in plugin settings; values go into Kubernetes Secrets.
 4. On the **Projects** tab, add a repository by URL or local checkout, approve it
    once for new pods, and **Sync project**. The **Overview** tab tracks these steps.
+   Optionally size new pods (CPU, memory, storage, Docker sidecar) on the **Pods** tab;
+   changes apply to new workspaces only.
 5. Create an environment, wait for its daemon to be online, and **Open workspace**.
    Bootstrap prepares Codex authentication, repository checkout, project trust and
    selected MCP definitions before the daemon starts.

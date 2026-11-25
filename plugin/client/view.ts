@@ -71,3 +71,56 @@ export function removeCopy(name: string, workspaces: number | null) {
         : `${plural(workspaces, "running workspace")}`;
   return `Remove ${name}? This stops new workspaces for it only. ${running} stay${workspaces === 1 ? "s" : ""} untouched and keep working.`;
 }
+
+// ---- Pods tab helpers ----
+import type { Pods, PodsIssue, PodsOverride } from "../shared/pods.js";
+
+export function formatCores(n: number) {
+  if (n >= 1) return `${Math.round(n * 100) / 100} CPU`;
+  return `${Math.round(n * 1000)}m CPU`;
+}
+export function formatBytes(n: number) {
+  const units = [["Ti", 1024 ** 4], ["Gi", 1024 ** 3], ["Mi", 1024 ** 2], ["Ki", 1024]] as const;
+  for (const [u, f] of units) if (n >= f) return `${Math.round((n / f) * 10) / 10}${u}`;
+  return `${n}B`;
+}
+
+// First message for a field path (e.g. "compute.cpuLimit"), if any.
+export const issueFor = (issues: PodsIssue[], path: string) =>
+  issues.find((i) => i.path === path)?.message;
+
+// Empty and unchanged-blank fields mean "use the global value": drop them from an override.
+// Returns undefined when nothing is overridden so the project's pod overrides can be removed.
+export function cleanOverride(o: PodsOverride | undefined): PodsOverride | undefined {
+  const out: Record<string, Record<string, string>> = {};
+  for (const group of ["compute", "storage", "docker"] as const) {
+    const kept: Record<string, string> = {};
+    for (const [k, v] of Object.entries(o?.[group] ?? {})) {
+      const s = typeof v === "string" ? v.trim() : "";
+      if (s !== "") kept[k] = s;
+    }
+    if (Object.keys(kept).length) out[group] = kept;
+  }
+  return Object.keys(out).length ? (out as PodsOverride) : undefined;
+}
+
+export const podsEqual = (a: Pods, b: Pods) => JSON.stringify(a) === JSON.stringify(b);
+
+// One sentence on what a single workspace asks for and how many fit the quota (null = unknown).
+export function capacityText(
+  perPod: { requests: { cpu: number; memory: number }; storage: number },
+  fit: number | null,
+) {
+  const base = `One workspace requests ${formatCores(perPod.requests.cpu)} and ${formatBytes(perPod.requests.memory)} memory${
+    perPod.storage > 0 ? `, plus a ${formatBytes(perPod.storage)} volume` : ""
+  }.`;
+  if (fit === null) return base;
+  return `${base} The namespace quota admits about ${plural(fit, "workspace")}.`;
+}
+
+// Pending workspaces carry the reason from the controller in status.message.
+export function pendingReason(phase: string, message: string) {
+  return phase === "Pending" && message ? message : null;
+}
+export const PENDING_HELP =
+  "Quota rejections mean the namespace quota is full: raise it or lower the pod requests. A node-capacity shortfall leaves the pod Pending until nodes free up.";

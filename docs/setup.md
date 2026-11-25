@@ -116,7 +116,7 @@ authentication and Service/network policy for your deployment.
 
 ## Providers and projects
 
-The panel has five tabs: **Overview**, **Cluster**, **Providers**, **Projects** and
+The panel has six tabs: **Overview**, **Cluster**, **Providers**, **Projects**, **Pods** and
 **Workspaces**. Overview lists the setup steps (cluster, providers, projects) with
 buttons that jump to each tab. Providers are chosen once and shared; each project
 adds only its repository settings.
@@ -168,9 +168,36 @@ Each project row shows its state (*Synced*, *Out of date*, *Not synced* or
 *Unapproved*), how many providers it uses and how many workspaces run from it.
 **Edit project** sets the branch/tag/commit (default: the origin's default branch),
 an optional subset of the selected providers, project MCP servers, and image, Docker
-and ephemeral-storage overrides. **Sync project** writes only that project's profile.
+and ephemeral-storage overrides, plus a **Pod settings** section (off by default) to
+override any pod size for that project. **Sync project** writes only that project's profile.
 **Remove** stops new workspaces for the project only; running workspaces stay
 untouched.
+
+### Pods tab
+
+Sets the compute (CPU and memory request and limit, plus scratch space), storage
+(volume size, storage class, persistent or ephemeral) and, when Docker is on, the
+Docker sidecar (its resources and data volume) of pods created by the gateway. The
+defaults equal the previous built-in values, so nothing changes until you edit them.
+Fields are validated as you type (valid quantities, request no greater than limit,
+volume at least 1Gi). **Reset to defaults** restores the built-in values; **Save pod
+settings** rewrites the catalog.
+
+**Changes apply to new workspaces only**: a workspace spec is immutable, so existing
+workspaces keep their values. A project can override any field in **Edit project >
+Pod settings**; empty fields inherit the global value.
+
+When the plugin may read them, the tab shows the namespace `ResourceQuota`, how many
+workspaces fit, and warnings (a pod larger than the quota, a missing storage class, a
+class without volume expansion). Without that access it degrades silently to free-text
+fields. Reading quotas needs the `resourcequotas` rule in the plugin Role; reading
+storage classes needs the optional cluster-scoped read (`pluginRole.clusterReadEnabled`).
+Storage caveats: a volume cannot shrink, growing one is manual and needs a class with
+expansion, and ephemeral workspaces ignore the class.
+
+A workspace that cannot start shows **Pending** with the reason in the Workspaces tab
+(for example "Insufficient cpu" or "Quota exceeded: ..."). A full namespace quota
+rejects the pod and is retried; a node-capacity shortfall leaves it Pending.
 
 **Sync providers** and **Sync project** create immutable versioned objects: a file
 Secret and environment Secret for the provider set, and a non-secret bootstrap
