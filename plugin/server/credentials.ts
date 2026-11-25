@@ -189,6 +189,55 @@ export async function discover(repositoryPath: string, o: SourceOptions = {}) {
     repositoryUrl: s.url,
   };
 }
+type Sources = Awaited<ReturnType<typeof sources>>;
+// Exports the named MCP definitions for pods: URL overrides, no loopback endpoints, checkout paths
+// translated to /workspace/repository, and the environment variables each one needs.
+function exportMcps(
+  names: Iterable<string>,
+  s: Sources,
+  env: NodeJS.ProcessEnv,
+  mcpUrls: Record<string, string>,
+) {
+  const mcps: Record<string, Mcp> = Object.create(null);
+  const mcpEnv: Record<string, string[]> = Object.create(null);
+  for (const name of new Set(names)) {
+    if (!Object.hasOwn(s.mcps, name))
+      throw new Error(
+        "A selected MCP no longer exists. Discover sources again.",
+      );
+    const m = structuredClone(s.mcps[name]);
+    if (mcpUrls[name]) {
+      const u = new URL(mcpUrls[name]);
+      if (!["https:", "http:"].includes(u.protocol) || u.username || u.password)
+        throw new Error(
+          "MCP URL overrides must be HTTP(S) endpoints without embedded credentials.",
+        );
+      m.url = u.toString();
+    }
+    if (loopback(m.url))
+      throw new Error(
+        "Replace localhost MCP endpoints with a URL reachable from workspace pods.",
+      );
+    if (typeof m.cwd === "string" && s.root && m.cwd.startsWith(s.root + "/"))
+      m.cwd = "/workspace/repository/" + m.cwd.slice(s.root.length + 1);
+    else if (m.cwd === s.root && s.root) m.cwd = "/workspace/repository";
+    if (
+      typeof m.command === "string" &&
+      s.root &&
+      m.command.startsWith(s.root + "/")
+    )
+      m.command = "/workspace/repository/" + m.command.slice(s.root.length + 1);
+    const required = environmentNames(m);
+    for (const key of required)
+      if (!env[key])
+        throw new Error(
+          `MCP environment variable ${key} is unavailable on the main daemon.`,
+        );
+    mcpEnv[name] = required;
+    mcps[name] = m;
+  }
+  return { mcps, mcpEnv };
+}
 export async function bundle(
   selection: z.output<typeof syncSelection>,
   o: SourceOptions = {},
@@ -231,43 +280,9 @@ export async function bundle(
       );
     vars[key] = env[key]!;
   }
-  const mcps: Record<string, Mcp> = Object.create(null);
-  for (const name of new Set(selection.mcps)) {
-    if (!Object.hasOwn(s.mcps, name))
-      throw new Error(
-        "A selected MCP no longer exists. Discover sources again.",
-      );
-    const m = structuredClone(s.mcps[name]);
-    if (selection.mcpUrls[name]) {
-      const u = new URL(selection.mcpUrls[name]);
-      if (!["https:", "http:"].includes(u.protocol) || u.username || u.password)
-        throw new Error(
-          "MCP URL overrides must be HTTP(S) endpoints without embedded credentials.",
-        );
-      m.url = u.toString();
-    }
-    if (loopback(m.url))
-      throw new Error(
-        "Replace localhost MCP endpoints with a URL reachable from workspace pods.",
-      );
-    if (typeof m.cwd === "string" && s.root && m.cwd.startsWith(s.root + "/"))
-      m.cwd = "/workspace/repository/" + m.cwd.slice(s.root.length + 1);
-    else if (m.cwd === s.root && s.root) m.cwd = "/workspace/repository";
-    if (
-      typeof m.command === "string" &&
-      s.root &&
-      m.command.startsWith(s.root + "/")
-    )
-      m.command = "/workspace/repository/" + m.command.slice(s.root.length + 1);
-    for (const key of environmentNames(m)) {
-      if (!env[key])
-        throw new Error(
-          `MCP environment variable ${key} is unavailable on the main daemon.`,
-        );
-      vars[key] = env[key]!;
-    }
-    mcps[name] = m;
-  }
+  const { mcps, mcpEnv } = exportMcps(selection.mcps, s, env, selection.mcpUrls);
+  for (const names of Object.values(mcpEnv))
+    for (const key of names) vars[key] = env[key]!;
   const config: Record<string, unknown> = {
     cli_auth_credentials_store: "file",
     mcp_oauth_credentials_store: "file",
@@ -378,4 +393,252 @@ export async function sync(
     repository: data.bootstrap.repository?.url ?? "",
     gatewayReady: true,
   };
+}
+
+// ---- Shared provider set + thin project profile (design: docs/design/projects-tab.md sections 1-2) ----
+export const OWNER_LABEL = "workspaces.paseo.sh/profile-owner";
+export function ownerOf(serverId: string, c: Configuration) {
+  return createHash("sha256")
+    .update(JSON.stringify([serverId, scopeOf(c)]))
+    .digest("hex")
+    .slice(0, 16);
+}
+// Matches the gateway's project id (hex of the first 16 bytes of sha256(url)).
+export function projectId(repository: string) {
+  return createHash("sha256").update(repository).digest("hex").slice(0, 32);
+}
+const b64 = (v: string) => Buffer.from(v).toString("base64");
+const digest = (v: unknown) =>
+  createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 20);
+const LIMIT = 900_000;
+// Writes Secret, env Secret and ConfigMap, all immutable and content-addressed. The ConfigMap is last.
+async function applyTriple(
+  run: Kubectl,
+  owner: string,
+  namespace: string,
+  name: string,
+  extra: Record<string, string>,
+  files: Record<string, string>,
+  environment: Record<string, string>,
+  configData: Record<string, string>,
+) {
+  const meta = {
+    name,
+    namespace,
+    labels: { [OWNER_LABEL]: owner, ...extra },
+  };
+  const secret = {
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: meta,
+    type: "Opaque",
+    immutable: true,
+    data: { "files.json": b64(JSON.stringify(files)) },
+  };
+  const envSecret = {
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: { ...meta, name: name + "-env" },
+    type: "Opaque",
+    immutable: true,
+    data: Object.fromEntries(
+      Object.entries(environment).map(([k, v]) => [k, b64(v)]),
+    ),
+  };
+  const config = {
+    apiVersion: "v1",
+    kind: "ConfigMap",
+    metadata: meta,
+    immutable: true,
+    data: configData,
+  };
+  if (
+    Buffer.byteLength(JSON.stringify(secret)) +
+      Buffer.byteLength(JSON.stringify(envSecret)) >
+    LIMIT
+  )
+    throw new Error("Selected credentials exceed the profile size limit.");
+  await applyOwned(run, secret, owner);
+  await applyOwned(run, envSecret, owner);
+  await applyOwned(run, config, owner);
+}
+export interface ProviderSelection {
+  providers: z.output<typeof syncSelection>["providers"];
+  mcps: string[];
+  mcpUrls: Record<string, string>;
+  includeMcpOAuthFile: boolean;
+  codexMode: "access-only" | "refreshing";
+}
+export async function syncProviders(
+  c: Configuration,
+  selection: ProviderSelection,
+  serverId: string,
+  run: Kubectl = connection(c),
+  o: SourceOptions = {},
+  snapshot?: PaseoProviderSnapshotResult,
+  controls: Record<string, unknown> = {},
+) {
+  const s = await sources("", o);
+  const env = o.env ?? process.env;
+  const files: Record<string, string> = {};
+  const vars: Record<string, string> = {};
+  if (selection.providers.includes("codex-login")) {
+    const raw = await text(join(s.home, "auth.json"));
+    try {
+      const v = JSON.parse(raw);
+      if (typeof v?.tokens?.access_token !== "string" || !v.tokens.access_token)
+        throw new Error();
+      // access-only: pods can use the access token but never rotate the refresh token. Codex
+      // rejects a missing key but accepts an empty string, so blank it rather than delete it.
+      if (selection.codexMode === "access-only") v.tokens.refresh_token = "";
+      files["auth.json"] =
+        selection.codexMode === "access-only" ? JSON.stringify(v) : raw;
+    } catch {
+      throw new Error(
+        "A file-backed Codex subscription login is required. Log in on the main host first.",
+      );
+    }
+  }
+  for (const provider of selection.providers) {
+    if (provider === "codex-login") continue;
+    const key = providerEnv[provider];
+    if (!env[key])
+      throw new Error(
+        `Selected credential ${key} is unavailable on the main daemon.`,
+      );
+    vars[key] = env[key]!;
+  }
+  const { mcps, mcpEnv } = exportMcps(selection.mcps, s, env, selection.mcpUrls);
+  for (const names of Object.values(mcpEnv))
+    for (const key of names) vars[key] = env[key]!;
+  files["config.toml"] = stringify({
+    cli_auth_credentials_store: "file",
+    mcp_oauth_credentials_store: "file",
+    mcp_servers: mcps,
+  } as Parameters<typeof stringify>[0]);
+  if (selection.includeMcpOAuthFile) {
+    if (!selection.mcps.length)
+      throw new Error("Select an MCP before exporting its OAuth cache.");
+    const raw = await text(join(s.home, ".credentials.json"));
+    try {
+      JSON.parse(raw);
+    } catch {
+      throw new Error("The MCP OAuth cache is invalid.");
+    }
+    files[".credentials.json"] = raw;
+  }
+  const discovery = snapshot ? providerProfile(snapshot, selection.providers) : [];
+  const owner = ownerOf(serverId, c);
+  const meta = {
+    providers: selection.providers,
+    mcps: [...new Set(selection.mcps)],
+    mcpEnv,
+  };
+  const name = `pw-providers-${owner}-${digest({ files, vars, meta, discovery, controls })}`;
+  await applyTriple(
+    run,
+    owner,
+    c.namespace,
+    name,
+    { "workspaces.paseo.sh/kind": "providers" },
+    files,
+    vars,
+    {
+      "providers.json": JSON.stringify({
+        ...meta,
+        providerSnapshot: discovery,
+        providerControls: controls,
+      }),
+    },
+  );
+  return { name, owner, ...meta };
+}
+export interface ProjectSync {
+  repository: string;
+  // Optional local checkout: the only source of project-level MCPs and of the canonical origin URL.
+  path?: string;
+  trusted: boolean;
+  revision: string;
+  providerSubset: string[] | null;
+  // Optional subset of the provider set's MCP servers; null = all.
+  mcpSubset?: string[] | null;
+  projectMcps: string[];
+  mcpUrls?: Record<string, string>;
+}
+export async function syncProject(
+  c: Configuration,
+  project: ProjectSync,
+  providerSet: { providers: string[]; mcps: string[] },
+  serverId: string,
+  run: Kubectl = connection(c),
+  o: SourceOptions = {},
+) {
+  if (!project.trusted)
+    throw new Error(
+      "Approve this repository before exporting its project configuration.",
+    );
+  if (
+    project.revision &&
+    (!/^[A-Za-z0-9][A-Za-z0-9._/@+-]*$/.test(project.revision) ||
+      project.revision.includes(".."))
+  )
+    throw new Error(
+      "Use a branch, tag or commit name without whitespace or option prefixes.",
+    );
+  const url = repositoryUrl(project.repository);
+  if (project.providerSubset)
+    for (const id of project.providerSubset)
+      if (!providerSet.providers.includes(id))
+        throw new Error(
+          "A project can only use providers that are part of the synced provider set.",
+        );
+  if (project.mcpSubset)
+    for (const m of project.mcpSubset)
+      if (!providerSet.mcps.includes(m))
+        throw new Error(
+          "A project can only use MCP servers that are part of the synced provider set.",
+        );
+  const env = o.env ?? process.env;
+  const vars: Record<string, string> = {};
+  let mcps: Record<string, Mcp> = Object.create(null);
+  if (project.projectMcps.length) {
+    if (!project.path)
+      throw new Error("Project MCPs need a local checkout of the repository.");
+    const s = await sources(project.path, o);
+    if (s.url !== url)
+      throw new Error("The checkout does not match the project repository.");
+    const exported = exportMcps(project.projectMcps, s, env, project.mcpUrls ?? {});
+    mcps = exported.mcps;
+    for (const names of Object.values(exported.mcpEnv))
+      for (const key of names) vars[key] = env[key]!;
+  }
+  const config: Record<string, unknown> = {
+    projects: { "/workspace/repository": { trust_level: "trusted" } },
+  };
+  if (Object.keys(mcps).length) config.mcp_servers = mcps;
+  const files = {
+    "config.toml": stringify(config as Parameters<typeof stringify>[0]),
+  };
+  const bootstrap = {
+    repository: { url, revision: project.revision },
+    trustRepository: true,
+    // MCPs defined only in the project's own config.toml; the gateway allows them besides `mcps`.
+    projectMcps: Object.keys(mcps),
+    ...(project.providerSubset ? { providers: project.providerSubset } : {}),
+    ...(project.mcpSubset ? { mcps: project.mcpSubset } : {}),
+  };
+  const owner = ownerOf(serverId, c);
+  const id = projectId(url);
+  const name = `pw-profile-${owner}-${digest({ files, vars, bootstrap })}`;
+  await applyTriple(
+    run,
+    owner,
+    c.namespace,
+    name,
+    { "workspaces.paseo.sh/kind": "project", "workspaces.paseo.sh/project": id },
+    files,
+    vars,
+    { "bootstrap.json": JSON.stringify(bootstrap) },
+  );
+  return { name, owner, id };
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -47,9 +48,13 @@ func (p *Provisioner) Targets(ctx context.Context) ([]Target, error) {
 		profile, _, _ := unstructured.NestedString(obj.Object, "spec", "bootstrap", "configMapName")
 		copy := *p
 		copy.Profile = profile
+		// Running workspaces keep the provider set they were created with.
+		copy.Providers, _, _ = unstructured.NestedString(obj.Object, "spec", "bootstrap", "providers", "configMapName")
 		discovery, err := copy.Discover(ctx)
 		if err != nil {
-			return nil, err
+			// A workspace whose profile was removed must not hide every other workspace.
+			slog.Warn("skipping workspace with unavailable profile", "workspace", obj.GetName(), "reason", err.Error())
+			continue
 		}
 		if discovery.Project == nil {
 			continue

@@ -53,6 +53,22 @@ func (p *Provisioner) Discover(ctx context.Context) (Discovery, error) {
 		return Discovery{}, errors.New("profile discovery metadata is invalid")
 	}
 	result := Discovery{Providers: data.Providers, Controls: data.Controls}
+	if p.Providers != "" {
+		// Snapshot and controls live in the shared provider set, which must be a synced snapshot of the
+		// same installation as the project profile.
+		var set corev1.ConfigMap
+		if err := p.Client.Get(ctx, types.NamespacedName{Name: p.Providers, Namespace: p.Namespace}, &set); err != nil {
+			return Discovery{}, fmt.Errorf("provider set unavailable: %w", err)
+		}
+		if !owned(set.Labels, set.Immutable, config.Labels[ownerLabel], "providers") {
+			return Discovery{}, errors.New("provider set metadata is not a synced snapshot of this installation")
+		}
+		var shared providerSet
+		if err := json.Unmarshal([]byte(set.Data["providers.json"]), &shared); err != nil {
+			return Discovery{}, errors.New("provider set metadata is invalid")
+		}
+		result.Providers, result.Controls = shared.Snapshot, shared.Controls
+	}
 	if data.Repository == nil {
 		return result, nil
 	}

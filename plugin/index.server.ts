@@ -9,8 +9,9 @@ import {
   requestSchema,
 } from "./shared/contracts.js";
 import { create, list, release, defaults } from "./server/backend.js";
-import { workspaceSettings, settingsSchema } from "./shared/settings.js";
-import { inspect } from "./server/kubernetes.js";
+import { reconcile, type MigrationDeps } from "./server/migration.js";
+import { workspaceSettings, settingsSchema, type Configuration } from "./shared/settings.js";
+import { connection, inspect } from "./server/kubernetes.js";
 import { discover, sync } from "./server/credentials.js";
 import { captureControls } from "./server/provider-profile.js";
 import {
@@ -39,10 +40,28 @@ export default function contribute(server: PluginServerContext) {
         state.values.gatewayHostName || defaults().gatewayHostName,
     });
   }
+  async function catalogDeps(paseo: PaseoApi, c: Configuration): Promise<MigrationDeps> {
+    const directory = await paseo.hosts.list();
+    return {
+      serverId: directory.self.serverId,
+      run: connection(c),
+      providerContext: async (selection) => {
+        const snapshot = await paseo.providers.waitForReady({});
+        const controls = await captureControls(paseo, snapshot, selection.providers, process.cwd());
+        return { snapshot, controls };
+      },
+    };
+  }
   server.handle(inspectSetup, async (_, { paseo }) => {
-    const result = await inspect(await configuration());
-    if (result.operator === "ready") attach(paseo);
-    return result;
+    const c = await configuration();
+    const result = await inspect(c);
+    if (result.operator !== "ready") return result;
+    attach(paseo);
+    // Automatic, idempotent migration of the legacy profile; never fails the inspection.
+    const migration = await reconcile(c, result, await catalogDeps(paseo, c)).catch(
+      () => ({ migrated: false, error: "The catalog could not be updated." }),
+    );
+    return { ...result, ...(migration.error ? { migrationError: migration.error } : {}) };
   });
   server.handle(discoverSources, async ({ repositoryPath }) =>
     discover(repositoryPath),
@@ -51,7 +70,14 @@ export default function contribute(server: PluginServerContext) {
     const directory = await paseo.hosts.list();
     const snapshot = await paseo.providers.waitForReady({cwd: selection.repositoryPath || undefined});
     const controls = await captureControls(paseo,snapshot,selection.providers,selection.repositoryPath || process.cwd());
-    return sync(await configuration(), selection, directory.self.serverId, undefined, undefined, snapshot,controls);
+    const c = await configuration();
+    const result = await sync(c, selection, directory.self.serverId, undefined, undefined, snapshot,controls);
+    // Re-split from this selection and rewrite the catalog (legacy entry if the CRD is old).
+    const status = await inspect(c);
+    await reconcile({ ...c, bundle: result }, status, await catalogDeps(paseo, c),
+      { selection: { providers: selection.providers, mcps: selection.mcps, mcpUrls: selection.mcpUrls, includeMcpOAuthFile: selection.includeMcpOAuthFile, codexMode: c.providers.codexMode } },
+    ).catch(() => undefined);
+    return result;
   });
   let active: PaseoApi | undefined;
   let busy = false;

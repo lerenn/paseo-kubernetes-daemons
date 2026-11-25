@@ -11,11 +11,9 @@ import (
 	"strings"
 
 	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -25,10 +23,12 @@ const optionsAnnotation = "workspaces.paseo.sh/gateway-options"
 // Provisioner creates one environment per idempotency key. The profile name
 // must come from trusted gateway configuration, never from an untrusted client.
 type Provisioner struct {
-	Client         client.Client
-	Namespace      string
-	Image          string
-	Profile        string
+	Client    client.Client
+	Namespace string
+	Image     string
+	Profile   string
+	// Providers is the shared provider set the profile is paired with; empty means a legacy profile.
+	Providers      string
 	Docker         bool
 	Persistent     bool
 	MainConnection string
@@ -55,8 +55,11 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 	if p.Namespace == "" || p.Image == "" || p.Profile == "" {
 		return nil, errors.New("gateway namespace, workspace image and synced credential profile are required")
 	}
-	if len(validation.IsDNS1123Subdomain(p.Profile)) != 0 || len(p.Profile) > 59 {
+	if validProfileName(p.Profile) != nil {
 		return nil, errors.New("invalid credential profile name")
+	}
+	if p.Providers != "" && validProfileName(p.Providers) != nil {
+		return nil, errors.New("invalid provider set name")
 	}
 	sum := sha256.Sum256([]byte(key))
 	digest := hex.EncodeToString(sum[:])
@@ -76,92 +79,14 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 		return nil, fmt.Errorf("find workspace: %w", err)
 	}
 
-	// A profile consists of three immutable, similarly owned resources. Check
-	// all of them before requesting a pod, including the repository metadata.
-	var files, env corev1.Secret
-	var config corev1.ConfigMap
-	for _, item := range []struct {
-		name   string
-		object client.Object
-	}{
-		{p.Profile, &files}, {p.Profile + "-env", &env}, {p.Profile, &config},
-	} {
-		if err := p.Client.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: item.name}, item.object); err != nil {
-			return nil, fmt.Errorf("credential profile %q is unavailable: %w", p.Profile, err)
-		}
+	profile, err := p.loadProfile(ctx)
+	if err != nil {
+		return nil, err
 	}
-	owner := files.Labels["workspaces.paseo.sh/profile-owner"]
-	if owner == "" || env.Labels["workspaces.paseo.sh/profile-owner"] != owner || config.Labels["workspaces.paseo.sh/profile-owner"] != owner || files.Immutable == nil || !*files.Immutable || env.Immutable == nil || !*env.Immutable || config.Immutable == nil || !*config.Immutable {
-		return nil, errors.New("credential profile is incomplete or inconsistent; sync it again")
+	if err := profile.check(requirements); err != nil {
+		return nil, err
 	}
-	var fileData map[string]string
-	if json.Unmarshal(files.Data["files.json"], &fileData) != nil || fileData == nil {
-		return nil, errors.New("credential profile files are invalid; sync it again")
-	}
-	if _, ok := fileData["config.toml"]; !ok {
-		return nil, errors.New("credential profile configuration is missing; sync it again")
-	}
-	var bootstrap struct {
-		Repository *struct {
-			URL string `json:"url"`
-		} `json:"repository"`
-		Trust     bool     `json:"trustRepository"`
-		Providers []string `json:"providers"`
-		MCPs      []string `json:"mcps"`
-	}
-	if err := json.Unmarshal([]byte(config.Data["bootstrap.json"]), &bootstrap); err != nil {
-		return nil, errors.New("credential profile configuration is invalid; sync it again")
-	}
-	if requirements.Provider != "" {
-		allowed := map[string][]string{"codex": {"codex-login", "openai-key"}, "claude": {"anthropic-key"}, "gemini": {"gemini-key"}}
-		matched := false
-		for _, credential := range allowed[requirements.Provider] {
-			for _, selected := range bootstrap.Providers {
-				if credential == selected {
-					matched = true
-				}
-			}
-		}
-		if !matched {
-			return nil, fmt.Errorf("credentials for provider %q are not synced; sync the profile again", requirements.Provider)
-		}
-		usable := false
-		for _, selected := range bootstrap.Providers {
-			switch {
-			case requirements.Provider == "codex" && selected == "codex-login":
-				var auth struct {
-					Tokens struct {
-						AccessToken string `json:"access_token"`
-					} `json:"tokens"`
-				}
-				usable = json.Unmarshal([]byte(fileData["auth.json"]), &auth) == nil && auth.Tokens.AccessToken != ""
-			case requirements.Provider == "codex" && selected == "openai-key":
-				usable = len(env.Data["OPENAI_API_KEY"]) > 0
-			case requirements.Provider == "claude" && selected == "anthropic-key":
-				usable = len(env.Data["ANTHROPIC_API_KEY"]) > 0
-			case requirements.Provider == "gemini" && selected == "gemini-key":
-				usable = len(env.Data["GEMINI_API_KEY"]) > 0
-			}
-			if usable {
-				break
-			}
-		}
-		if !usable {
-			return nil, fmt.Errorf("credentials for provider %q are missing; sync the profile again", requirements.Provider)
-		}
-	}
-	for _, requested := range requirements.MCPs {
-		found := false
-		for _, selected := range bootstrap.MCPs {
-			if requested == selected {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, fmt.Errorf("MCP %q is not synced; sync the profile again", requested)
-		}
-	}
+	bootstrap := profile.Bootstrap
 	workingDirectory := "/workspace"
 	if bootstrap.Repository != nil {
 		if strings.TrimSpace(bootstrap.Repository.URL) == "" || !bootstrap.Trust {
@@ -171,6 +96,10 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 	}
 	if requirements.Repository != "" && (bootstrap.Repository == nil || requirements.Repository != bootstrap.Repository.URL) {
 		return nil, errors.New("requested repository is not approved in the synced profile")
+	}
+	bootstrapSpec := map[string]interface{}{"secretName": p.Profile, "configMapName": p.Profile, "envSecretName": p.Profile + "-env"}
+	if profile.Set != nil {
+		bootstrapSpec["providers"] = profile.providerRefs(p.Providers)
 	}
 	obj.SetName(name)
 	obj.SetNamespace(p.Namespace)
@@ -183,7 +112,7 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 		"gateway": true,
 		"image":   p.Image, "ephemeral": !p.Persistent, "storage": storage, "workingDirectory": workingDirectory,
 		"docker":    map[string]interface{}{"enabled": p.Docker},
-		"bootstrap": map[string]interface{}{"secretName": p.Profile, "configMapName": p.Profile, "envSecretName": p.Profile + "-env"},
+		"bootstrap": bootstrapSpec,
 		"resources": map[string]interface{}{"requests": map[string]interface{}{"cpu": "250m", "memory": "512Mi", "ephemeral-storage": "1Gi"}, "limits": map[string]interface{}{"cpu": "2", "memory": "4Gi", "ephemeral-storage": "4Gi"}},
 	}
 	if err := p.Client.Create(ctx, obj); err != nil {
@@ -197,15 +126,24 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 		}
 		return existing(obj, digest, optionsDigest, p)
 	}
+	if profile.Set != nil {
+		// A CRD from before the provider sets prunes the unknown field silently, which would start a pod
+		// without any credentials. Remove it again and say what to do.
+		if _, found, _ := unstructured.NestedMap(obj.Object, "spec", "bootstrap", "providers"); !found {
+			_ = p.Client.Delete(ctx, obj)
+			return nil, errors.New("CRD out of date: apply config/crd.yaml before creating workspaces with provider sets")
+		}
+	}
 	return obj, nil
 }
 
 func existing(obj *unstructured.Unstructured, digest, optionsDigest string, p *Provisioner) (*unstructured.Unstructured, error) {
 	image, _, _ := unstructured.NestedString(obj.Object, "spec", "image")
 	profile, _, _ := unstructured.NestedString(obj.Object, "spec", "bootstrap", "secretName")
+	providers, _, _ := unstructured.NestedString(obj.Object, "spec", "bootstrap", "providers", "secretName")
 	docker, _, _ := unstructured.NestedBool(obj.Object, "spec", "docker", "enabled")
 	ephemeral, _, _ := unstructured.NestedBool(obj.Object, "spec", "ephemeral")
-	if obj.GetAnnotations()[requestAnnotation] != digest || obj.GetAnnotations()[optionsAnnotation] != optionsDigest || image != p.Image || profile != p.Profile || docker != p.Docker || ephemeral == p.Persistent || obj.GetDeletionTimestamp() != nil {
+	if obj.GetAnnotations()[requestAnnotation] != digest || obj.GetAnnotations()[optionsAnnotation] != optionsDigest || image != p.Image || profile != p.Profile || providers != p.Providers || docker != p.Docker || ephemeral == p.Persistent || obj.GetDeletionTimestamp() != nil {
 		return nil, errors.New("workspace request conflicts with an existing environment")
 	}
 	return obj, nil

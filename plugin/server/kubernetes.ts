@@ -46,6 +46,42 @@ export function connection(c: Configuration): Kubectl {
       child.stdin?.end(input === undefined ? undefined : JSON.stringify(input));
     });
 }
+// An old CRD silently prunes spec.bootstrap.providers. Reading the CRD needs cluster RBAC, so probe
+// with a strict server-side dry-run create instead: unknown fields are rejected, nothing persists.
+export async function crdCurrent(run: Kubectl) {
+  try {
+    await run(
+      ["create", "--dry-run=server", "--validate=strict", "-f", "-", "-o", "name"],
+      {
+        apiVersion: "workspaces.paseo.sh/v1alpha1",
+        kind: "PaseoWorkspace",
+        metadata: { name: "crd-probe" },
+        spec: {
+          image: "probe",
+          storage: "1Gi",
+          bootstrap: {
+            secretName: "probe",
+            configMapName: "probe",
+            envSecretName: "probe-env",
+            providers: {
+              secretName: "probe",
+              configMapName: "probe",
+              envSecretName: "probe-env",
+            },
+          },
+          docker: { enabled: false, dataSize: "1Gi" },
+          resources: {
+            requests: { cpu: "1m", memory: "1Mi", "ephemeral-storage": "1Mi" },
+            limits: { cpu: "1m", memory: "1Mi", "ephemeral-storage": "1Mi" },
+          },
+        },
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 export async function inspect(c: Configuration, run = connection(c)) {
   try {
     let context = c.context;
@@ -77,6 +113,7 @@ export async function inspect(c: Configuration, run = connection(c)) {
     return {
       context,
       namespace: c.namespace,
+      crdCurrent: ready ? await crdCurrent(run) : false,
       operator: ready ? ("ready" as const) : ("unavailable" as const),
       message: ready
         ? "Operator is ready."
@@ -86,6 +123,7 @@ export async function inspect(c: Configuration, run = connection(c)) {
     return {
       context: c.context,
       namespace: c.namespace,
+      crdCurrent: false,
       operator:
         error instanceof KubernetesError && error.reason === "missing"
           ? ("missing" as const)
