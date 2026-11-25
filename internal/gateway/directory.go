@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sort"
 	"strconv"
 	"time"
@@ -141,7 +142,8 @@ func (s *Session) directory(frame Frame) error {
 		for _, p := range catalog {
 			d, err := p.Discover(s.ctx)
 			if err != nil {
-				return err
+				slog.Warn("skipping unavailable project profile", "profile", p.Profile, "reason", err.Error())
+				continue
 			}
 			if d.Project == nil {
 				continue

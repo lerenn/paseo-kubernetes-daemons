@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 
 	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
 	corev1 "k8s.io/api/core/v1"
@@ -18,7 +19,10 @@ import (
 const CatalogName = "paseo-workspaces-gateway"
 
 type ProfileConfiguration struct {
-	Profile        string `json:"profile"`
+	Profile string `json:"profile"`
+	// Providers names the shared provider set (Secret, "-env" Secret and ConfigMap). Empty keeps the
+	// legacy single-profile path.
+	Providers      string `json:"providers,omitempty"`
 	Image          string `json:"image"`
 	Docker         bool   `json:"docker"`
 	Ephemeral      bool   `json:"ephemeral"`
@@ -47,14 +51,26 @@ func (c Catalog) Load(ctx context.Context) ([]*Provisioner, error) {
 		return nil, errors.New("gateway project catalog is invalid")
 	}
 	result := make([]*Provisioner, 0, len(entries))
-	for _, entry := range entries {
+	for i, entry := range entries {
 		if entry.Image == "" {
 			entry.Image = c.DefaultImage
 		}
-		if entry.Profile == "" || entry.Image == "" {
-			return nil, errors.New("gateway profile or workspace image is missing")
+		// One broken entry must not take the whole host down: skip it and log why.
+		if err := validProfileName(entry.Profile); err != nil {
+			slog.Warn("skipping gateway catalog entry", "index", i, "reason", err.Error())
+			continue
 		}
-		result = append(result, &Provisioner{Client: c.Client, Namespace: c.Namespace, Profile: entry.Profile, Image: entry.Image, Docker: entry.Docker, Persistent: !entry.Ephemeral, MainConnection: entry.MainConnection})
+		if entry.Providers != "" {
+			if err := validProfileName(entry.Providers); err != nil {
+				slog.Warn("skipping gateway catalog entry", "index", i, "profile", entry.Profile, "reason", "invalid provider set: "+err.Error())
+				continue
+			}
+		}
+		if entry.Image == "" {
+			slog.Warn("skipping gateway catalog entry", "index", i, "profile", entry.Profile, "reason", "workspace image is missing")
+			continue
+		}
+		result = append(result, &Provisioner{Client: c.Client, Namespace: c.Namespace, Profile: entry.Profile, Providers: entry.Providers, Image: entry.Image, Docker: entry.Docker, Persistent: !entry.Ephemeral, MainConnection: entry.MainConnection})
 	}
 	return result, nil
 }

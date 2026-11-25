@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -25,7 +26,8 @@ func (s *Session) hostRequest(frame Frame) error {
 	for _, p := range catalog {
 		d, err := p.Discover(s.ctx)
 		if err != nil {
-			return err
+			slog.Warn("skipping unavailable project profile", "profile", p.Profile, "reason", err.Error())
+			continue
 		}
 		if d.Project != nil {
 			project := d.Project

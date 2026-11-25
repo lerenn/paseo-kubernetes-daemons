@@ -28,6 +28,9 @@ export const inspectSetup = defineRpc({
     context: z.string(),
     namespace: z.string(),
     operator: z.enum(["ready", "missing", "unavailable"]),
+    // False when the installed CRD predates spec.bootstrap.providers: apply config/crd.yaml.
+    crdCurrent: z.boolean().default(true),
+    migrationError: z.string().optional(),
     message: z.string(),
   }),
 });

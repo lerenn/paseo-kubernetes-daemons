@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -123,14 +124,21 @@ func (s *Session) discovery(projectID string) (*Provisioner, Discovery, error) {
 	if err != nil {
 		return nil, Discovery{}, err
 	}
+	var skipped error
 	for _, p := range catalog {
 		d, err := p.Discover(s.ctx)
 		if err != nil {
-			return nil, Discovery{}, err
+			// Only the broken entry is unusable; remember why in case nothing else matches.
+			slog.Warn("skipping unavailable project profile", "profile", p.Profile, "reason", err.Error())
+			skipped = err
+			continue
 		}
 		if projectID == "" || d.Project != nil && (d.Project.ID == projectID || d.Project.Root == projectID) {
 			return p, d, nil
 		}
+	}
+	if skipped != nil && projectID == "" {
+		return nil, Discovery{}, skipped
 	}
 	return nil, Discovery{}, errors.New("project credentials have not been synced")
 }

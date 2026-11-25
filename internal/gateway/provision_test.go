@@ -127,8 +127,8 @@ func TestCatalogDefaultsMissingImage(t *testing.T) {
 	data, _ := json.Marshal(entries)
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: CatalogName, Namespace: "ns", Labels: map[string]string{"workspaces.paseo.sh/profile-owner": "x"}}, Data: map[string]string{"projects.json": string(data)}}
 	c := fake.NewClientBuilder().WithObjects(cm).Build()
-	if _, err := (Catalog{Client: c, Namespace: "ns"}).Load(context.Background()); err == nil {
-		t.Fatal("missing image without default must fail")
+	if got, err := (Catalog{Client: c, Namespace: "ns"}).Load(context.Background()); err != nil || len(got) != 0 {
+		t.Fatalf("entry without image must be skipped, got %+v err %v", got, err)
 	}
 	got, err := (Catalog{Client: c, Namespace: "ns", DefaultImage: "img:1"}).Load(context.Background())
 	if err != nil || len(got) != 1 || got[0].Image != "img:1" {
