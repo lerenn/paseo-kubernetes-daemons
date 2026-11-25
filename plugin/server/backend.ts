@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import { nameSchema } from "../shared/contracts.js";
 import {
@@ -158,6 +159,9 @@ function gatewayConnection(c: Configuration, password: string) {
   }
   return `tcp://${gatewayService}.${c.namespace}.svc:${gatewayPort}?password=${secret}`;
 }
+const appliedConnections = new Map<string, string>();
+const fingerprintOf = (connection: string) =>
+  createHash("sha256").update(connection).digest("hex");
 /**
  * Registers the operator's virtual "<Name> (Kubernetes)" host while the gateway is enabled,
  * and removes it once its identity Secret is gone. Failures other than "missing" leave the
@@ -207,11 +211,31 @@ export async function syncGateway(
     // hosts.add refuses an existing sourceKey (source_conflict), so a registration
     // left by an older version (other target) is updated in place instead.
     if (existing.length > 0) {
+      const host = existing[0];
+      // Sending a connection restarts the daemon's link to the gateway and closes every
+      // routed session (the app shows the host as offline). Reconciliation runs every few
+      // seconds, so only send it when it changed since the last successful update.
+      const fingerprint = fingerprintOf(registration.connection);
+      if (appliedConnections.get(host.registrationId) === fingerprint) {
+        const changed =
+          host.label !== registration.label ||
+          JSON.stringify(host.metadata) !== JSON.stringify(registration.metadata);
+        if (!changed) return host;
+        stage = "hosts.update";
+        return await paseo.hosts.update(host.registrationId, {
+          label: registration.label,
+          metadata: registration.metadata,
+        });
+      }
       stage = "hosts.update";
-      return await paseo.hosts.update(existing[0].registrationId, registration);
+      const updated = await paseo.hosts.update(host.registrationId, registration);
+      appliedConnections.set(host.registrationId, fingerprint);
+      return updated;
     }
     stage = "hosts.add";
-    return await paseo.hosts.add({ ...registration, sourceKey });
+    const added = await paseo.hosts.add({ ...registration, sourceKey });
+    appliedConnections.set(added.registrationId, fingerprintOf(registration.connection));
+    return added;
   } catch (error) {
     throw new GatewayError(stage, redact(error, password), error);
   }
