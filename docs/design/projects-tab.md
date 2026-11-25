@@ -192,7 +192,85 @@ their own profile (`target.go:47-57`) and are never orphaned by removing a proje
 - Running pods and direct CRs are untouched. Credentials tab disappears; the same selection shows up on
   Providers pre-ticked.
 
-## 6. Phased plan **[CHANGED]**
+## 6. Pods tab: settings of created pods **[CHANGED: new]**
+
+A dedicated **Pods** tab holds compute, storage and Docker settings for pods created by the gateway.
+
+### What exists today (verified on `origin/main`)
+- The workspace spec already carries `resources`, `storage`, `storageClassName` (`internal/controller/workspace.go:41-43`)
+  and the CRD requires cpu, memory and ephemeral-storage in both requests and limits
+  (`config/crd.yaml:92-105`). The spec is immutable (`self == oldSelf`, chart CRD `paseoworkspaces.yaml:40-43`).
+- The gateway **hard-codes** them: storage `4Gi` (ephemeral) or `10Gi` (persistent), requests cpu `250m` /
+  memory `512Mi` / ephemeral-storage `1Gi`, limits cpu `2` / memory `4Gi` / ephemeral-storage `4Gi`
+  (`provision.go:178-187`). `storageClassName` is never set (cluster default class).
+- The Docker sidecar has its own fixed resources (requests 250m/256Mi/1Gi, limits 2/2Gi/12Gi) and a 10Gi
+  `docker-data` emptyDir (`workspace.go:156-183`); none of it is configurable from the spec.
+- The chart can create a namespace `ResourceQuota` (`charts/paseo-workspaces/values.yaml:43-53`,
+  `templates/optional.yaml:22-31`).
+- Status only reports init/container waiting reasons (`workspace.go:231-257`): an unschedulable pod
+  (`Pending`, condition `PodScheduled=False`, "Insufficient cpu") produces an **empty** message, and
+  `WaitReady` just loops until the client times out (`readiness.go:40-47`).
+
+### Layout
+- **Compute:** CPU and memory *request* and *limit* (ephemeral-storage request/limit as "scratch space",
+  advanced).
+- **Storage:** size, `storageClassName` (dropdown from `storageclasses` list if the RBAC allows, else free
+  text, empty = cluster default), mode **Persistent** (PVC) vs **Ephemeral** (emptyDir; the existing
+  `ephemeral` setting moves here from the cluster settings).
+- **Docker sidecar** (visible only when Docker is on): cpu/memory request+limit, ephemeral-storage limit and
+  data volume size. Because the sidecar is privileged, the card keeps the existing warning.
+- Header shows a **capacity summary**: per-pod requests, the namespace `ResourceQuota` (read-only) and "about N
+  pods fit".
+
+### Defaults and overrides
+- **Global defaults** in plugin settings (v2): `pods: { compute, storage, docker }`, initialised to **exactly
+  today's hard-coded values**, so nothing changes until the user edits them (back-compat).
+- **Per-project override** (thin project, section 1): `overrides.pods?` with the same shape, partial; any
+  absent field falls back to the global default. A project edit screen gets a "Pod settings" accordion that
+  is off by default. Image/docker/ephemeral overrides join this one structure.
+
+### Catalog and gateway
+- `ProfileConfiguration` (`configuration.go:20-26`) gains optional fields: `resources` (a
+  `corev1.ResourceRequirements`), `storage`, `storageClassName`, `dockerResources`, `dockerDataSize`.
+  The plugin writes the effective values (default merged with override) per entry, so the gateway needs no merge logic.
+- `Provisioner` gets the same fields; `CreateWithRequirements` (`provision.go:178-187`) uses them when
+  set and the current literals otherwise, so an old catalog without them behaves exactly as today.
+  `Catalog.Load` validates quantities with `resource.ParseQuantity` and skips the entry on error
+  (consistent with the hardening in section 3).
+- Docker sidecar values need **new spec fields** (`spec.docker.resources`, `spec.docker.dataSize`),
+  a CRD change and a controller change at `workspace.go:156-183`; compute/storage need no CRD change.
+  If the user wants that smaller, ship compute + storage first and the sidecar later (phase 6).
+- `existing()` (`provision.go:203-211`) must **not** compare resources: a retried request for an
+  existing workspace keeps its original values. **Existing workspaces keep old values** for free (immutable spec); changing
+  the settings only affects pods created afterwards, and the UI says so.
+
+### Validation (plugin side, mirrored in Go)
+- Quantities parse (cpu `250m`/`2`, memory `Mi/Gi`); request <= limit for each pair; non-zero; sane upper bounds.
+- Storage: size >= 1Gi; for an existing class, warn when `allowVolumeExpansion` is false.
+- **Quota warning:** read the namespace `ResourceQuota` (needs `get/list resourcequotas` added to
+  `config/plugin-rbac.yaml`) and warn when one pod's requests/limits exceed any `requests.*`/`limits.*` hard
+  limit, or when `pods x requests` exceeds it. Warning, not an error: the quota may be raised. Note the
+  chart text "excess pods stay Pending" (`values.yaml:43`) is inaccurate for namespace quota: admission
+  *rejects* the pod create, so the controller returns an error and retries (`workspace.go:201-213`); a
+  node-capacity shortfall is what leaves a pod Pending. The doc and UI should say both.
+
+### Surfacing Pending reasons
+- Controller (small Go change): when the pod is `Pending`, copy the `PodScheduled=False` condition message
+  (e.g. "0/3 nodes are available: Insufficient cpu") and a failed PVC binding ("storageclass not found",
+  "unbound immediate PersistentVolumeClaims") into `status.message`; surface quota rejection as
+  message `Quota exceeded: ...` instead of a bare reconcile error.
+- Gateway: `WaitReady` returns "workspace pending: <message>" after a short grace period instead of
+  waiting silently (`readiness.go:40-47`).
+- UI: the Workspaces list shows a `Pending` badge with the reason, and the Pods tab links "increase
+  quota / lower requests".
+
+### Storage class caveats
+- `storageClassName` and `storage` are fixed per workspace; **shrinking is impossible** and expanding an
+  existing PVC is a manual operation (class must allow expansion). Changing the setting affects only new
+  workspaces. A class that does not exist leaves the PVC unbound (the Pending reason above).
+- Ephemeral mode ignores the class; the size is an emptyDir `sizeLimit`, counted as ephemeral storage.
+
+## 7. Phased plan **[CHANGED]**
 
 | PR | Scope | Tests |
 |----|-------|-------|
@@ -200,9 +278,11 @@ their own profile (`target.go:47-57`) and are never orphaned by removing a proje
 | 2 | **Settings v2 + sync engine:** `providers` + `projects`, migration, fan-out sync, `project`/`provider-set` labels, subset logic, unique URL, per-project status. RPCs `providers.find/select/sync`, `projects.list/add/update/approve/remove/sync`. | v1 -> v2 migration, subset narrowing, trust gating, fan-out partial failure keeps old catalog, size/limit. |
 | 3 | **Gateway hardening:** skip broken entries (`host_requests.go`, `directory.go`, `configuration.go`), multi-profile create/route tests. Parallel with 2, must merge before 4 is released. | Two profiles, one deleted; create picks the right one; `Targets` unaffected by catalog removal. |
 | 4 | **UI:** Providers tab (rename + rows + details), Projects tab, Overview steps, docs/website. | Component smoke tests; manual run on a cluster. |
-| 5 (optional) | Profile GC by `provider-set`/`project` label (needs `delete` in `config/plugin-rbac.yaml`), editable display name (gateway change), and the Option B migration if secret volume demands it. | GC safety. |
+| 5 | **Pods tab, compute + storage:** settings `pods`, catalog fields, `provision.go` applies them (defaults = today), validation, quota read RBAC, UI tab, per-project override. | Old catalog yields identical spec; request<=limit; invalid quantity skipped; `existing()` ignores resources. |
+| 6 | **Pending reasons + Docker sidecar settings:** controller copies scheduling/PVC reasons to `status.message`, `WaitReady` reports them, sidecar fields (`spec.docker.resources/dataSize`, CRD + controller). | envtest: unschedulable pod gives a message; sidecar resources applied; CRD back-compat. |
+| 7 (optional) | Profile GC by `provider-set`/`project` label (needs `delete` in `config/plugin-rbac.yaml`), editable display name (gateway change), and the Option B migration if secret volume demands it. | GC safety. |
 
-## 7. Risks
+## 8. Risks
 - Catalog could be hand-created on other clusters; the plugin only overwrites a catalog carrying its own
   owner label (`applyOwned`, `kubernetes.ts:102-140`).
 - Codex refresh-token behaviour (section 2); unchanged pod-level risk, warned in the UI.
@@ -211,7 +291,7 @@ their own profile (`target.go:47-57`) and are never orphaned by removing a proje
 - Stale detection depends on stored `provider-set`/profile hashes.
 - Catalog is read once per session call; fine at 100 entries.
 
-## 8. Decisions needed from the user **[CHANGED: list replaced and renumbered]**
+## 9. Decisions needed from the user **[CHANGED: list replaced and renumbered]**
 1. **Option A (merge into per-project profiles, no operator/image change, recommended)** or B (shared
    cluster provider set; requires coordinated operator + image + CRD release)?
 2. Codex subscription login: allow it as a shared provider with the refresh-token warning (recommended) or
@@ -224,4 +304,7 @@ their own profile (`target.go:47-57`) and are never orphaned by removing a proje
 6. Does a project with no providers selected (subset empty) count as valid (clone-only), or must it have at
    least one?
 7. Project display name: derived from the URL (no gateway change) or editable (gateway change, PR 5)?
-8. Ship PR 1 (catalog writer) as a standalone 0.2.x fix first (recommended, creation is broken today)?
+8. Pods tab: include Docker sidecar settings (needs CRD + controller change) now, or only compute + storage first?
+9. Pod defaults: keep today's values (recommended) or raise them (e.g. 4Gi memory request)?
+10. Allow per-project pod overrides (recommended) or global only? Should the plugin be given read access to `resourcequotas` and `storageclasses` for the warnings?
+11. Ship PR 1 (catalog writer) as a standalone 0.2.x fix first (recommended, creation is broken today)?
