@@ -15,7 +15,7 @@ export const bundleSchema = z.object({
   gatewayReady: z.boolean().default(false),
 });
 // Keep in step with plugin/package.json: releases publish paseo-workspace:<version>.
-export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.4.0";
+export const DEFAULT_WORKSPACE_IMAGE = "ghcr.io/lerenn/paseo-workspace:0.4.1";
 export const providerId = z.enum([
   "codex-login",
   "openai-key",
