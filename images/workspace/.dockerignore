@@ -2,3 +2,4 @@
 !Dockerfile
 !bootstrap.py
 !git-askpass.py
+!install-plugins.py
