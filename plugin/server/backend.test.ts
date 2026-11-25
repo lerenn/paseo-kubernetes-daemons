@@ -203,3 +203,24 @@ test("syncGateway uses the custom gatewayHostName as the label when set", async 
   await syncGateway(api, { ...base, gatewayHostName: "" }, run);
   assert.equal(adds[1].label, "Main (Kubernetes)");
 });
+
+test("syncGateway does not resend an unchanged connection (it would restart the host link and drop routes)", async () => {
+  const updates: unknown[] = [];
+  const host = { registrationId: "stable", label: "Main (Kubernetes)", metadata: { manager: "paseo-kubernetes-workspaces", scope: "c9/ns", gateway: "true" }, source: { id: "p", key: "kubernetes-gateway/c9/ns" } };
+  const api = {
+    hosts: {
+      list: async () => ({ self: { serverId: "m", label: "Main" }, hosts: [host] }),
+      add: async () => { throw new Error("source_conflict"); },
+      update: async (_id: string, patch: unknown) => { updates.push(patch); return host; },
+      remove: async () => {},
+    },
+  } as unknown as PaseoApi;
+  const run = async () => JSON.stringify({ data: { password: Buffer.from("pw").toString("base64") } });
+  const c = { ...defaults(), namespace: "ns", clusterId: "c9", context: "", gatewayEndpoint: "w.example.net" };
+  await syncGateway(api, c, run);
+  await syncGateway(api, c, run);
+  await syncGateway(api, c, run);
+  assert.equal(updates.length, 1);
+  await syncGateway(api, { ...c, gatewayEndpoint: "other.example.net" }, run);
+  assert.equal(updates.length, 2);
+});
