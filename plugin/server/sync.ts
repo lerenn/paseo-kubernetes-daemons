@@ -19,6 +19,8 @@ import {
 export interface ProviderContext {
   snapshot: PaseoProviderSnapshotResult;
   controls: Record<string, unknown>;
+  // Raw `providers` record of the main daemon config (profile definitions, secrets included).
+  daemonProviders?: Record<string, unknown>;
 }
 export interface SyncDeps {
   serverId: string;
@@ -35,6 +37,7 @@ export interface SetInfo {
   name: string;
   providers: string[];
   mcps: string[];
+  profileDigests: Record<string, string>;
 }
 export interface ProjectResult {
   id: string;
@@ -54,6 +57,7 @@ export const providerSelection = (c: Configuration): ProviderSelection => ({
   providers: c.providers.selected,
   mcps: c.providers.mcps,
   mcpUrls: c.providers.mcpUrls,
+  profileUrls: c.providers.profileUrls,
   includeMcpOAuthFile: c.providers.includeMcpOAuthFile,
   codexMode: c.providers.codexMode,
 });
@@ -97,6 +101,8 @@ export async function readProviderSet(
       name,
       providers: Array.isArray(v.providers) ? v.providers : [],
       mcps: Array.isArray(v.mcps) ? v.mcps : [],
+      profileDigests:
+        v.profileDigests && typeof v.profileDigests === "object" ? v.profileDigests : {},
     };
   } catch {
     return null;
@@ -200,6 +206,7 @@ export async function splitAll(
     deps.options,
     context.snapshot,
     context.controls,
+    context.daemonProviders,
   );
   const at = new Date().toISOString();
   const projects = await syncProjectsAgainst(c, set, effectiveProjects(c), deps, at);
@@ -212,6 +219,7 @@ export async function syncAllProviders(c: Configuration, deps: SyncDeps) {
   const catalog = await publishCatalog(c, deps, status, synced);
   return {
     providerSet: { name: set.name, providers: set.providers, mcps: set.mcps, at },
+    skippedProfiles: set.skippedProfiles,
     lastSync: { at, version: set.name },
     projects: results,
     catalog,

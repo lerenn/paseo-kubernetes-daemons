@@ -5,6 +5,7 @@ import datetime
 import json
 import math
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -12,7 +13,11 @@ import tempfile
 import tomllib
 from urllib.parse import urlsplit
 
-ALLOWED_FILES = {'auth.json', 'config.toml', '.credentials.json'}
+ALLOWED_FILES = {'auth.json', 'config.toml', '.credentials.json', 'paseo-providers.json'}
+PROFILES_FILE = 'paseo-providers.json'
+PROFILE_ID = re.compile(r'[A-Za-z0-9_-]{1,64}')
+# Provider ids that pod daemons define themselves; a synced profile may never replace them.
+RESERVED_PROFILES = {'claude', 'codex', 'opencode', 'pi', 'copilot', 'gemini', 'muse', 'antigravity'}
 
 def write_private(path, content):
     if path.is_symlink() or (path.exists() and not path.is_file()):
@@ -94,6 +99,53 @@ def load_files(directory):
         if name != 'config.toml': json.loads(content)
     return files
 
+def apply_profiles(root, content, only, same):
+    """Merge synced provider profiles into the pod daemon's own config.json (agents.providers).
+
+    `only` None means every profile in the file; an empty set means none. Profile definitions may
+    hold API keys, so the file is private (0600). Profiles written by an earlier run and no longer
+    wanted are removed; everything else in the daemon's configuration is kept."""
+    payload = json.loads(content).get('profiles', {}) if content else {}
+    if not isinstance(payload, dict): raise ValueError('invalid provider profiles')
+    wanted = {}
+    for pid, entry in payload.items():
+        if not PROFILE_ID.fullmatch(pid) or pid in RESERVED_PROFILES: raise ValueError('invalid provider profile')
+        if not isinstance(entry, dict) or not isinstance(entry.get('provider'), dict): raise ValueError('invalid provider profile')
+        auth = entry.get('codexAuth')
+        if auth is not None:
+            if not isinstance(auth, str): raise ValueError('invalid provider profile')
+            json.loads(auth)
+        if only is None or pid in only: wanted[pid] = entry
+    paseo = root / '.paseo'
+    if paseo.is_symlink() or (paseo.exists() and not paseo.is_dir()): raise ValueError('unsafe Paseo home')
+    paseo.mkdir(mode=0o700, exist_ok=True)
+    marker = paseo / '.k8s-profiles'
+    config_path = paseo / 'config.json'
+    if marker.is_symlink() or config_path.is_symlink(): raise ValueError('unsafe Paseo configuration')
+    previous = json.loads(marker.read_text()) if marker.exists() else []
+    if not wanted and not previous: return
+    config = json.loads(config_path.read_text()) if config_path.exists() else {'version': 1}
+    agents = config.setdefault('agents', {})
+    providers = agents.setdefault('providers', {})
+    for pid in previous: providers.pop(pid, None)
+    for pid, entry in wanted.items():
+        definition = dict(entry['provider'])
+        auth = entry.get('codexAuth')
+        if auth is not None:
+            home = root / '.codex-profiles' / pid
+            for d in (home.parent, home):
+                if d.is_symlink() or (d.exists() and not d.is_dir()): raise ValueError('unsafe profile Codex home')
+                d.mkdir(mode=0o700, exist_ok=True)
+            target = home / 'auth.json'
+            if target.is_symlink(): raise ValueError('unsafe credential destination')
+            # A pod-local copy may have refreshed itself; keep it while the synced set is unchanged.
+            if not same or not target.exists(): write_private(target, auth)
+            definition['env'] = {**definition.get('env', {}), 'CODEX_HOME': str(home)}
+        providers[pid] = definition
+    write_private(config_path, json.dumps(config, indent=2))
+    config_path.chmod(0o600)
+    write_private(marker, json.dumps(sorted(wanted)))
+
 def merge_providers(files, provider_files, provider_files_subset=None, provider_mcps_subset=None):
     """Merge the shared provider set under the project's own files. Project wins.
 
@@ -123,7 +175,7 @@ def merge_providers(files, provider_files, provider_files_subset=None, provider_
     return merged
 
 def prepare(root, secret_dir, config_dir, profile, alias_root=None, providers=None,
-            providers_secret_dir=None, provider_files=None, provider_mcps=None):
+            providers_secret_dir=None, provider_files=None, provider_mcps=None, provider_profiles=None):
     root = Path(root)
     if root.is_symlink(): raise ValueError('unsafe workspace root')
     root.mkdir(parents=True, exist_ok=True)
@@ -134,10 +186,12 @@ def prepare(root, secret_dir, config_dir, profile, alias_root=None, providers=No
     files = load_files(secret_dir)
     config = json.loads((Path(config_dir) / 'bootstrap.json').read_text())
     if 'config.toml' not in files: raise ValueError('invalid credential bundle')
+    profiles_file = None
     if providers:
         files = merge_providers(files, load_files(providers_secret_dir), provider_files, provider_mcps)
         # Marker identity covers both objects so a new provider set refreshes pod copies.
         profile = profile + '+' + providers
+        profiles_file = files.pop(PROFILES_FILE, None)
     settings = tomllib.loads(files['config.toml'])
     repo = config.get('repository')
     if repo and not config.get('trustRepository'): raise ValueError('repository has not been approved')
@@ -171,6 +225,8 @@ def prepare(root, secret_dir, config_dir, profile, alias_root=None, providers=No
             target = home / name
             if target.is_symlink(): raise ValueError('unsafe credential destination')
             target.unlink(missing_ok=True)
+    if providers:
+        apply_profiles(root, profiles_file, provider_profiles, same)
     for name, content in files.items():
         target = home / name
         if target.is_symlink(): raise ValueError('unsafe credential destination')
@@ -190,11 +246,12 @@ def main():
     parser.add_argument('--providers-config', default='/var/run/paseo/providers/config')
     parser.add_argument('--provider-files', help='comma-separated provider files to keep; absent = all, empty = none')
     parser.add_argument('--provider-mcps', help='comma-separated provider MCP servers to keep; absent = all, empty = none')
+    parser.add_argument('--provider-profiles', help='comma-separated provider profile ids to keep; absent = all, empty = none')
     args = parser.parse_args()
     try:
         subset = lambda v: None if v is None else {i for i in v.split(',') if i}
         prepare(args.workspace, args.secrets, args.config, args.profile, args.alias_root, args.providers,
-                args.providers_secrets, subset(args.provider_files), subset(args.provider_mcps))
+                args.providers_secrets, subset(args.provider_files), subset(args.provider_mcps), subset(args.provider_profiles))
     except Exception:
         # Upstream parser/Git exceptions may embed secrets; never print their raw text.
         print('Workspace bootstrap failed. Check the selected snapshot, repository access and image dependencies.', file=sys.stderr)

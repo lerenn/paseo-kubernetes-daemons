@@ -18,7 +18,7 @@ const project = (repository: string, extra = {}) => ({
 function fixture() {
   const c = settingsSchema.parse({
     namespace: "ns",
-    image: "ghcr.io/lerenn/paseo-workspace:0.3.0",
+    image: "ghcr.io/lerenn/paseo-workspace:0.3.1",
     mainConnection: "main:6767",
     docker: false,
     ephemeral: true,
@@ -58,7 +58,7 @@ test("catalog JSON matches the golden file the Go contract test reads", () => {
   assert.deepEqual(head, {
     profile: "pw-profile-o-1",
     providers: "pw-providers-o-2",
-    image: "ghcr.io/lerenn/paseo-workspace:0.3.0",
+    image: "ghcr.io/lerenn/paseo-workspace:0.3.1",
     docker: true,
     ephemeral: false,
     mainConnection: "main:6767",

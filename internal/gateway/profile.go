@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -15,6 +16,11 @@ import (
 const (
 	ownerLabel = "workspaces.paseo.sh/profile-owner"
 	kindLabel  = "workspaces.paseo.sh/kind"
+)
+
+const (
+	profilePrefix = "profile:"
+	profilesFile  = "paseo-providers.json"
 )
 
 // providerEnvKeys maps a provider credential id to the environment variable it supplies.
@@ -183,7 +189,17 @@ func (d *profileData) check(requirements Requirements) error {
 	if d.Set != nil {
 		authFiles, env = d.Set.files, d.Set.env
 	}
-	if requirements.Provider != "" {
+	profile := false
+	for _, selected := range providers {
+		// A selected profile serves the provider id it defines, when its definition file is synced.
+		if requirements.Provider != "" && selected == profilePrefix+requirements.Provider {
+			if _, ok := authFiles[profilesFile]; !ok {
+				return fmt.Errorf("credentials for provider %q are missing; sync the profile again", requirements.Provider)
+			}
+			profile = true
+		}
+	}
+	if requirements.Provider != "" && !profile {
 		allowed := map[string][]string{"codex": {"codex-login", "openai-key"}, "claude": {"anthropic-key"}, "gemini": {"gemini-key"}}
 		matched := false
 		for _, credential := range allowed[requirements.Provider] {
@@ -241,8 +257,14 @@ func (d *profileData) check(requirements Requirements) error {
 func (d *profileData) providerRefs(name string) map[string]interface{} {
 	providers, _, _ := d.selection()
 	mcps, _ := subset(d.Set.MCPs, d.Bootstrap.MCPs)
-	envKeys, files := map[string]bool{}, []string{}
+	envKeys, files, profiles := map[string]bool{}, []string{}, []string{}
 	for _, id := range providers {
+		// A "profile:<id>" entry is a user-defined provider profile merged into the pod daemon's
+		// own configuration (paseo-providers.json); its secrets stay inside that file.
+		if name, ok := strings.CutPrefix(id, profilePrefix); ok {
+			profiles = append(profiles, name)
+			continue
+		}
 		if key := providerEnvKeys[id]; key != "" {
 			envKeys[key] = true
 		}
@@ -251,6 +273,9 @@ func (d *profileData) providerRefs(name string) map[string]interface{} {
 				files = append(files, "auth.json")
 			}
 		}
+	}
+	if _, ok := d.Set.files[profilesFile]; ok && len(profiles) > 0 {
+		files = append(files, profilesFile)
 	}
 	for _, mcp := range mcps {
 		for _, key := range d.Set.MCPEnv[mcp] {
@@ -268,7 +293,7 @@ func (d *profileData) providerRefs(name string) map[string]interface{} {
 	}
 	sort.Strings(keys)
 	sort.Strings(files)
-	return map[string]interface{}{"secretName": name, "configMapName": name, "envSecretName": name + "-env", "envKeys": toAny(keys), "files": toAny(files), "mcps": toAny(mcps)}
+	return map[string]interface{}{"secretName": name, "configMapName": name, "envSecretName": name + "-env", "envKeys": toAny(keys), "files": toAny(files), "mcps": toAny(mcps), "profiles": toAny(profiles)}
 }
 
 func toAny(values []string) []interface{} {

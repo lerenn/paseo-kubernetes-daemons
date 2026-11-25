@@ -40,6 +40,8 @@ type ProviderRefs struct {
 	EnvKeys       []string `json:"envKeys,omitempty"`
 	Files         []string `json:"files,omitempty"`
 	MCPs          []string `json:"mcps,omitempty"`
+	// Profiles narrows the provider profiles merged from paseo-providers.json; absent means none.
+	Profiles []string `json:"profiles,omitempty"`
 }
 type Docker struct {
 	Enabled bool `json:"enabled"`
@@ -182,7 +184,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			initMounts = append(initMounts, corev1.VolumeMount{Name: "provider-credentials", MountPath: "/var/run/paseo/providers/credentials", ReadOnly: true}, corev1.VolumeMount{Name: "provider-config", MountPath: "/var/run/paseo/providers/config", ReadOnly: true})
 			initCommand = append(initCommand, "--providers", p.SecretName, "--providers-secrets", "/var/run/paseo/providers/credentials", "--providers-config", "/var/run/paseo/providers/config")
 			// Always passed: an empty value means none, so the bootstrap never falls back to "all".
-			initCommand = append(initCommand, "--provider-files="+strings.Join(p.Files, ","), "--provider-mcps="+strings.Join(p.MCPs, ","))
+			initCommand = append(initCommand, "--provider-files="+strings.Join(p.Files, ","), "--provider-mcps="+strings.Join(p.MCPs, ","), "--provider-profiles="+strings.Join(p.Profiles, ","))
 		}
 		pod.Spec.InitContainers = []corev1.Container{{Name: "bootstrap", Image: s.Image,
 			Command: initCommand,

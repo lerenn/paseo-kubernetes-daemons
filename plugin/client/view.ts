@@ -10,7 +10,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   "github-token": "GitHub repository access",
 };
 export const providerLabel = (id: string, fallback = id) =>
-  PROVIDER_LABELS[id] ?? fallback;
+  PROVIDER_LABELS[id] ?? (id.startsWith("profile:") ? `${id.slice(8)} (profile)` : fallback);
 
 export const rowStateBadge = (
   state: string,

@@ -23,6 +23,7 @@ type setOptions struct {
 	mutable         bool
 	skipSet         bool
 	bootstrap       string
+	profiles        bool
 }
 
 func providerScheme(t *testing.T) *runtime.Scheme {
@@ -64,6 +65,20 @@ func providerObjects(o setOptions) []client.Object {
 			&corev1.Secret{ObjectMeta: meta("set", o.setOwner, o.setKind), Immutable: &immutable, Data: map[string][]byte{"files.json": []byte(`{"config.toml":"","auth.json":"{\"tokens\":{\"access_token\":\"x\"}}",".credentials.json":"{}"}`)}},
 			&corev1.Secret{ObjectMeta: meta("set-env", o.setOwner, o.setKind), Immutable: &immutable, Data: map[string][]byte{"OPENAI_API_KEY": []byte("k"), "GITHUB_TOKEN": []byte("g"), "DOCS_TOKEN": []byte("d"), "OTHER_TOKEN": []byte("o")}},
 			&corev1.ConfigMap{ObjectMeta: meta("set", o.setOwner, o.setKind), Immutable: &immutable, Data: map[string]string{"providers.json": `{"providers":["codex-login","openai-key","github-token"],"mcps":["docs","other"],"mcpEnv":{"docs":["DOCS_TOKEN"],"other":["OTHER_TOKEN"]},"providerSnapshot":[{"provider":"codex"}],"providerControls":{}}`}})
+	}
+	if o.profiles {
+		for _, obj := range objects {
+			switch v := obj.(type) {
+			case *corev1.Secret:
+				if v.Name == "set" {
+					v.Data["files.json"] = []byte(`{"config.toml":"","paseo-providers.json":"{}"}`)
+				}
+			case *corev1.ConfigMap:
+				if v.Name == "set" {
+					v.Data["providers.json"] = `{"providers":["profile:codex-proxy","profile:other"],"mcps":[],"mcpEnv":{},"providerSnapshot":[],"providerControls":{}}`
+				}
+			}
+		}
 	}
 	return objects
 }
@@ -301,5 +316,26 @@ func TestCatalogLoadParsesPluginOutput(t *testing.T) {
 		if p.Profile != raw[i]["profile"] || (p.Providers != "") != (raw[i]["providers"] != nil) {
 			t.Fatalf("entry %d parsed as %+v from %v", i, p, raw[i])
 		}
+	}
+}
+
+func TestProfileSelectionListsFileAndProfiles(t *testing.T) {
+	p := providerFixture(t, setOptions{profiles: true, bootstrap: `{"repository":{"url":"https://example.com/a/b"},"trustRepository":true,"providers":["profile:codex-proxy"]}`})
+	ctx := context.Background()
+	if _, err := p.CreateWithRequirements(ctx, "a", Requirements{Provider: "codex"}); err == nil {
+		t.Fatal("provider without a selected profile accepted")
+	}
+	obj, err := p.CreateWithRequirements(ctx, "a", Requirements{Provider: "codex-proxy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(stringsAt(t, obj, "files"), ","); got != "paseo-providers.json" {
+		t.Fatalf("files %q", got)
+	}
+	if got := strings.Join(stringsAt(t, obj, "profiles"), ","); got != "codex-proxy" {
+		t.Fatalf("profiles %q", got)
+	}
+	if got := stringsAt(t, obj, "envKeys"); len(got) != 0 {
+		t.Fatalf("profile secrets must not become env vars: %v", got)
 	}
 }

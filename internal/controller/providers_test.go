@@ -105,7 +105,7 @@ func TestProvidersSubsetOnly(t *testing.T) {
 	}
 	want := []string{"python3", "/usr/local/lib/paseo-workspace/bootstrap.py", "--profile", "profile",
 		"--providers", "prov", "--providers-secrets", "/var/run/paseo/providers/credentials", "--providers-config", "/var/run/paseo/providers/config",
-		"--provider-files=auth.json", "--provider-mcps=docs,web"}
+		"--provider-files=auth.json", "--provider-mcps=docs,web", "--provider-profiles="}
 	if !slices.Equal(init.Command, want) {
 		t.Fatalf("command %v", init.Command)
 	}

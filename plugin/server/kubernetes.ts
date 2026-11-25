@@ -67,6 +67,7 @@ export async function crdCurrent(run: Kubectl) {
               secretName: "probe",
               configMapName: "probe",
               envSecretName: "probe-env",
+              profiles: ["probe"],
             },
           },
           docker: { enabled: false, dataSize: "1Gi" },
