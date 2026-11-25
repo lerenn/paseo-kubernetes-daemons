@@ -50,26 +50,17 @@ import type { z } from "zod";
 import { ProvidersTab, type ProvidersStatus } from "./providers-tab.js";
 import type { LocalRow } from "./view.js";
 import { ProjectsTab, type ProjectRow, type ProjectsActions } from "./projects-tab.js";
+import { WorkspacesSection, type Environment } from "./workspaces-section.js";
 import { PodsTab, type PodsStatus, type CheckPods } from "./pods-tab.js";
-import { applySynced, pendingReason, PENDING_HELP, plural } from "./view.js";
+import { applySynced, plural } from "./view.js";
 const TABS = [
   { id: "overview", label: "Overview", icon: "Gauge" },
   { id: "cluster", label: "Cluster", icon: "Server" },
   { id: "providers", label: "Providers", icon: "KeyRound" },
   { id: "projects", label: "Projects", icon: "FolderGit2" },
   { id: "pods", label: "Pods", icon: "Cpu" },
-  { id: "workspaces", label: "Workspaces", icon: "Boxes" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
-type Environment = {
-  message?: string;
-  name: string;
-  phase: string;
-  hostStatus: string | null;
-  serverId: string | null;
-  cwd: string;
-  error?: { message?: string } | null;
-};
 export function WorkspaceScreen({
   theme,
   layout,
@@ -487,6 +478,7 @@ export function WorkspaceScreen({
             </View>
           )}
           {tab === "overview" && (
+            <>
             <Card
               theme={theme}
               title="Overview"
@@ -531,16 +523,6 @@ export function WorkspaceScreen({
                       : "No projects yet",
                     detail: draft.projects.some((p) => !p.trusted)
                       ? "Some projects still need approval."
-                      : "",
-                  },
-                  {
-                    tab: "workspaces",
-                    icon: "Boxes",
-                    label: "Workspaces",
-                    done: rows.length > 0,
-                    value: `${rows.length} workspace${rows.length === 1 ? "" : "s"}`,
-                    detail: rows.length
-                      ? `${rows.filter((r) => r.hostStatus === "online").length} online`
                       : "",
                   },
                 ] as const
@@ -588,6 +570,42 @@ export function WorkspaceScreen({
                 </View>
               ))}
             </Card>
+            <WorkspacesSection
+              theme={theme}
+              text={text}
+              rows={rows}
+              name={name}
+              setName={setName}
+              wide={wide}
+              busy={busy}
+              saved={saved}
+              connected={connected}
+              providerSynced={providerSynced}
+              canCreate={canCreate}
+              deleting={deleting}
+              setDeleting={setDeleting}
+              canOpen={!!navigation}
+              onCreate={() =>
+                void action(async () => {
+                  setRows((await create({ name })) as Environment[]);
+                  toast.show("Workspace requested.");
+                })
+              }
+              onRefresh={() => void action(refresh)}
+              onOpen={(n) =>
+                void action(async () => {
+                  navigation?.openWorkspace(await open({ name: n }));
+                })
+              }
+              onDelete={(n) =>
+                void action(async () => {
+                  await release({ name: n });
+                  setDeleting(null);
+                  await refresh();
+                })
+              }
+            />
+          </>
           )}
           {tab === "cluster" && (
             <Card
@@ -851,234 +869,6 @@ export function WorkspaceScreen({
                 })
               }
             />
-          )}
-          {tab === "workspaces" && (
-            <Card
-              theme={theme}
-              title="Workspaces"
-              icon="Boxes"
-              description="An isolated daemon for every project."
-              badge={
-                <Badge
-                  theme={theme}
-                  label={`${rows.length} workspace${rows.length === 1 ? "" : "s"}`}
-                />
-              }
-            >
-              <View
-                style={{
-                  flexDirection: wide ? "row" : "column",
-                  gap: 12,
-                  alignItems: wide ? "flex-end" : "stretch",
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Field
-                    theme={theme}
-                    label="Workspace name"
-                    placeholder="my-next-project"
-                    value={name}
-                    onChange={setName}
-                    disabled={busy}
-                  />
-                </View>
-                <Button
-                  theme={theme}
-                  label="Create workspace"
-                  icon="Plus"
-                  primary
-                  disabled={!canCreate}
-                  onPress={() =>
-                    void action(async () => {
-                      setRows((await create({ name })) as Environment[]);
-                      toast.show("Workspace requested.");
-                    })
-                  }
-                />
-                <Button
-                  theme={theme}
-                  label="Refresh"
-                  icon="RefreshCw"
-                  disabled={busy || !saved || !connected}
-                  onPress={() => void action(refresh)}
-                />
-              </View>
-              {rows.length === 0 ? (
-                <View
-                  style={{
-                    alignItems: "center",
-                    gap: 9,
-                    paddingVertical: 24,
-                    borderWidth: 1,
-                    borderStyle: "dashed",
-                    borderColor: theme.colors.border,
-                    borderRadius: 10,
-                  }}
-                >
-                  <Icon
-                    name="Box"
-                    size={28}
-                    color={theme.colors.foregroundMuted}
-                  />
-                  <Text
-                    style={{
-                      fontSize: 15,
-                      fontWeight: "500",
-                      color: theme.colors.foreground,
-                    }}
-                  >
-                    Room for your next project
-                  </Text>
-                  <Text
-                    style={{
-                      ...text,
-                      textAlign: "center",
-                      paddingHorizontal: 16,
-                    }}
-                  >
-                    {connected && providerSynced
-                      ? "Create a workspace to start working in its own pod."
-                      : "Connect your cluster, sync providers and add a project to get started."}
-                  </Text>
-                </View>
-              ) : (
-                rows.map((row) => (
-                  <View
-                    key={row.name}
-                    style={{
-                      borderTopWidth: 1,
-                      borderColor: theme.colors.border,
-                      paddingTop: 16,
-                      gap: 12,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 12,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <View style={{ flex: 1, minWidth: 160, gap: 5 }}>
-                        <Text
-                          style={{
-                            fontSize: 16,
-                            fontWeight: "600",
-                            color: theme.colors.foreground,
-                          }}
-                        >
-                          {row.name}
-                        </Text>
-                        <Text style={text}>
-                          {row.hostStatus === "online"
-                            ? "Ready to work"
-                            : (row.hostStatus ?? row.phase)}
-                        </Text>
-                      </View>
-                      <Badge
-                        theme={theme}
-                        label={
-                          row.hostStatus === "online" ? "Online" : row.phase
-                        }
-                        tone={
-                          row.hostStatus === "online"
-                            ? "success"
-                            : row.phase === "Failed" || row.phase === "Pending"
-                              ? "warning"
-                              : "muted"
-                        }
-                      />
-                      {row.hostStatus === "online" && navigation && (
-                        <Button
-                          theme={theme}
-                          label="Open workspace"
-                          primary
-                          disabled={busy}
-                          onPress={() =>
-                            void action(async () => {
-                              navigation.openWorkspace(
-                                await open({ name: row.name }),
-                              );
-                            })
-                          }
-                        />
-                      )}
-                      <Button
-                        theme={theme}
-                        label="Release"
-                        disabled={busy}
-                        onPress={() => setDeleting(row.name)}
-                      />
-                    </View>
-                    {pendingReason(row.phase, row.message ?? "") ? (
-                      <View style={{ gap: 4 }}>
-                        <Text style={{ ...text, color: theme.colors.statusWarning }}>
-                          Pending: {row.message}
-                        </Text>
-                        <Text style={text}>{PENDING_HELP} Pod sizes are set on the Pods tab.</Text>
-                      </View>
-                    ) : (
-                      row.message && <Text style={text}>{row.message}</Text>
-                    )}
-                    {row.error?.message && (
-                      <Text
-                        style={{ ...text, color: theme.colors.statusDanger }}
-                      >
-                        {row.error.message}
-                      </Text>
-                    )}
-                    {deleting === row.name && (
-                      <View
-                        style={{
-                          backgroundColor: theme.colors.surface2,
-                          padding: 14,
-                          borderRadius: 8,
-                          gap: 12,
-                        }}
-                      >
-                        <Text style={text}>
-                          Delete {row.name} and its workspace storage? Export
-                          your results first.
-                        </Text>
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            gap: 8,
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <Button
-                            theme={theme}
-                            label="Delete workspace"
-                            danger
-                            disabled={busy}
-                            onPress={() =>
-                              void action(async () => {
-                                await release({ name: row.name });
-                                setDeleting(null);
-                                await refresh();
-                              })
-                            }
-                          />
-                          <Button
-                            theme={theme}
-                            label="Cancel"
-                            onPress={() => setDeleting(null)}
-                          />
-                        </View>
-                      </View>
-                    )}
-                    <Disclosure theme={theme} title="Connection details">
-                      <Text selectable style={text}>
-                        Server: {row.serverId ?? "Not registered"}
-                        {"\n"}Directory: {row.cwd}
-                      </Text>
-                    </Disclosure>
-                  </View>
-                ))
-              )}
-            </Card>
           )}
         </View>
       </ScrollView>

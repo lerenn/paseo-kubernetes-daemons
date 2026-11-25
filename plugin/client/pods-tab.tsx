@@ -257,7 +257,7 @@ export function PodsTab(props: {
       <Disclosure theme={theme} label="About quota and storage" summary="Pending vs rejected, resizing volumes">
         <Text style={text}>
           A namespace quota that is full rejects the pod, so the workspace is retried and reports "Quota exceeded": raise the quota or lower the requests. When
-          the cluster has no node with enough free CPU or memory the pod stays Pending with the scheduler's reason shown in the Workspaces tab.
+          the cluster has no node with enough free CPU or memory the pod stays Pending with the scheduler's reason shown in the Workspaces section of the Overview tab.
         </Text>
         <Text style={text}>
           A volume cannot shrink, and growing an existing one is a manual operation that needs a storage class with volume expansion. Ephemeral workspaces ignore the

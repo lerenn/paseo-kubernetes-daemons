@@ -315,7 +315,7 @@ A dedicated **Pods** tab holds compute, storage and Docker settings for pods cre
   message `Quota exceeded: ...` instead of a bare reconcile error.
 - Gateway: `WaitReady` returns "workspace pending: <message>" after a short grace period instead of
   waiting silently (`readiness.go:40-47`).
-- UI: the Workspaces list shows a `Pending` badge with the reason, and the Pods tab links "increase
+- UI: the Workspaces section on the Overview tab shows a `Pending` badge with the reason, and the Pods tab links "increase
   quota / lower requests".
 
 ### Storage class caveats
