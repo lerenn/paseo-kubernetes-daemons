@@ -108,7 +108,7 @@ test("syncGateway registers the virtual host while the gateway Secret exists", a
   };
   await syncGateway(api, c, run);
   assert.equal(adds.length, 1);
-  assert.equal(adds[0].label, "Main (Kubernetes)");
+  assert.equal(adds[0].label, "Main · Kubernetes");
   assert.equal(adds[0].connection, "tcp://paseo-workspaces-gateway.ns.svc:8787?password=s3%20cret");
   present = false;
   assert.equal(await syncGateway(api, c, run), null);
@@ -201,12 +201,12 @@ test("syncGateway uses the custom gatewayHostName as the label when set", async 
   await syncGateway(api, { ...base, gatewayHostName: "  Anyshift Lab  " }, run);
   assert.equal(adds[0].label, "Anyshift Lab");
   await syncGateway(api, { ...base, gatewayHostName: "" }, run);
-  assert.equal(adds[1].label, "Main (Kubernetes)");
+  assert.equal(adds[1].label, "Main · Kubernetes");
 });
 
 test("syncGateway does not resend an unchanged connection (it would restart the host link and drop routes)", async () => {
   const updates: unknown[] = [];
-  const host = { registrationId: "stable", label: "Main (Kubernetes)", metadata: { manager: "paseo-kubernetes-workspaces", scope: "c9/ns", gateway: "true" }, source: { id: "p", key: "kubernetes-gateway/c9/ns" } };
+  const host = { registrationId: "stable", label: "Main · Kubernetes", metadata: { manager: "paseo-kubernetes-workspaces", scope: "c9/ns", gateway: "true" }, source: { id: "p", key: "kubernetes-gateway/c9/ns" } };
   const api = {
     hosts: {
       list: async () => ({ self: { serverId: "m", label: "Main" }, hosts: [host] }),
@@ -223,4 +223,27 @@ test("syncGateway does not resend an unchanged connection (it would restart the 
   assert.equal(updates.length, 1);
   await syncGateway(api, { ...c, gatewayEndpoint: "other.example.net" }, run);
   assert.equal(updates.length, 2);
+});
+
+test("syncGateway patches only the label of an existing registration (no connection resend, no link restart)", async () => {
+  const updates: Record<string, unknown>[] = [];
+  const host = { registrationId: "stable2", label: "Main (Kubernetes)", metadata: { manager: "paseo-kubernetes-workspaces", scope: "c8/ns", gateway: "true" }, source: { id: "p", key: "kubernetes-gateway/c8/ns" } };
+  const api = {
+    hosts: {
+      list: async () => ({ self: { serverId: "m", label: "Main" }, hosts: [host] }),
+      add: async () => { throw new Error("source_conflict"); },
+      update: async (_id: string, patch: Record<string, unknown>) => { updates.push(patch); Object.assign(host, patch); return host; },
+      remove: async () => {},
+    },
+  } as unknown as PaseoApi;
+  const run = async () => JSON.stringify({ data: { password: Buffer.from("pw").toString("base64") } });
+  const c = { ...defaults(), namespace: "ns", clusterId: "c8", context: "", gatewayEndpoint: "w.example.net" };
+  // First sync applies the connection (with the new label); reset to the legacy label afterwards.
+  await syncGateway(api, c, run);
+  host.label = "Main (Kubernetes)";
+  updates.length = 0;
+  await syncGateway(api, c, run);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].label, "Main · Kubernetes");
+  assert.equal("connection" in updates[0], false);
 });

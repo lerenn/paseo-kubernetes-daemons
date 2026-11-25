@@ -21,7 +21,7 @@ resources:
   requests: {cpu: 50m, memory: 128Mi, ephemeral-storage: 16Mi}
   limits: {cpu: 500m, memory: 256Mi, ephemeral-storage: 64Mi}
 
-# Opt-in virtual "<Name> (Kubernetes)" host served by the operator process. It is
+# Opt-in virtual "<Name> · Kubernetes" host served by the operator process. It is
 # reachable only through an internal ClusterIP Service and widens the operator's
 # permissions (create/update/delete workspaces, catalog and identity Secrets).
 gateway:

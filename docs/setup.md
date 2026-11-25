@@ -75,7 +75,7 @@ silently exporting credentials to a different cluster after `kubectl` changes it
 current context. In-cluster service-account access does not require a context.
 
 When the operator runs with the gateway enabled (chart value `gateway.enabled=true`), the
-plugin registers the virtual "<Name> (Kubernetes)" host by itself, using the in-cluster
+plugin registers the virtual "<Name> · Kubernetes" host by itself, using the in-cluster
 Service `paseo-workspaces-gateway.<namespace>.svc:8787` and the password in the operator's
 `paseo-workspaces-gateway-auth` Secret. This needs the main daemon to reach that Service
 and to hold the plugin Role (get on that Secret). The host is removed when the Secret is gone.

@@ -590,8 +590,8 @@ export function WorkspaceScreen({
                   label="Host name"
                   value={draft.gatewayHostName}
                   onChange={(v) => patch("gatewayHostName", v)}
-                  placeholder="Optional, e.g. Anyshift Lab (Kubernetes)"
-                  hint="Shown in the host picker. Empty uses '<daemon name> (Kubernetes)'."
+                  placeholder="Optional, e.g. Anyshift Lab · Kubernetes"
+                  hint="Shown in the host picker. Empty uses '<daemon name> · Kubernetes'."
                   disabled={busy}
                 />
                 <Choice
