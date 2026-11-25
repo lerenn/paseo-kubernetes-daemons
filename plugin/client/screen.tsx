@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import {
   Badge,
@@ -28,20 +28,30 @@ import {
 } from "../shared/settings.js";
 import {
   inspectSetup,
-  discoverSources,
-  syncCredentials,
-  syncSelection,
+  providersStatus,
+  providersSync,
+  projectsList,
+  projectsDiscover,
+  projectsAdd,
+  projectsUpdate,
+  projectsApprove,
+  projectsRemove,
+  projectsSync,
+  projectsCatalog,
   createEnvironment,
   listEnvironments,
   releaseEnvironment,
   openEnvironment,
 } from "../shared/contracts.js";
 import type { z } from "zod";
-type Inventory = z.output<typeof discoverSources.output>;
+import { ProvidersTab, type ProvidersStatus } from "./providers-tab.js";
+import { ProjectsTab, type ProjectRow, type ProjectsActions } from "./projects-tab.js";
+import { applySynced, plural } from "./view.js";
 const TABS = [
   { id: "overview", label: "Overview", icon: "Gauge" },
   { id: "cluster", label: "Cluster", icon: "Server" },
-  { id: "credentials", label: "Credentials", icon: "KeyRound" },
+  { id: "providers", label: "Providers", icon: "KeyRound" },
+  { id: "projects", label: "Projects", icon: "FolderGit2" },
   { id: "workspaces", label: "Workspaces", icon: "Boxes" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
@@ -62,25 +72,34 @@ export function WorkspaceScreen({
   const settings = useSettings(workspaceSettings);
   const toast = useToast();
   const inspect = useRpc(inspectSetup),
-    discover = useRpc(discoverSources),
-    sync = useRpc(syncCredentials),
+    providersStatusRpc = useRpc(providersStatus),
+    providersSyncRpc = useRpc(providersSync),
+    listProjects = useRpc(projectsList),
+    discoverProject = useRpc(projectsDiscover),
+    addProject = useRpc(projectsAdd),
+    updateProject = useRpc(projectsUpdate),
+    approveProject = useRpc(projectsApprove),
+    removeProject = useRpc(projectsRemove),
+    syncProject = useRpc(projectsSync),
+    refreshCatalog = useRpc(projectsCatalog),
     create = useRpc(createEnvironment),
     list = useRpc(listEnvironments),
     release = useRpc(releaseEnvironment),
     open = useRpc(openEnvironment);
   const [draft, setDraft] = useState<Configuration>(settingsSchema.parse({}));
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const loadProvidersRef = useRef<() => Promise<void>>(async () => {});
+  const loadProjectsRef = useRef<() => Promise<void>>(async () => {});
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const [setup, setSetup] = useState<z.output<
     typeof inspectSetup.output
   > | null>(null);
-  const [inventory, setInventory] = useState<Inventory | null>(null);
-  const [repo, setRepo] = useState("");
-  const [revision, setRevision] = useState("");
-  const [providers, setProviders] = useState<string[]>([]),
-    [mcps, setMcps] = useState<string[]>([]),
-    [urls, setUrls] = useState<Record<string, string>>({});
-  const [trust, setTrust] = useState(false),
-    [oauth, setOauth] = useState(false),
-    [name, setName] = useState(""),
+  const [providerStatus, setProviderStatus] =
+    useState<ProvidersStatus | null>(null);
+  const [projectRows, setProjectRows] = useState<ProjectRow[] | null>(null);
+  const [name, setName] = useState(""),
     [rows, setRows] = useState<Environment[]>([]);
   const [tab, setTab] = useState<TabId>("overview");
   const [width, setWidth] = useState(0);
@@ -94,8 +113,10 @@ export function WorkspaceScreen({
     if (settings.status !== "ready") return;
     let disposed = false;
     void inspect({})
-      .then((result) => {
-        if (!disposed) setSetup(result);
+      .then(async (result) => {
+        if (disposed) return;
+        setSetup(result);
+        await applySplit(result).catch(() => {});
       })
       .catch(() => {
         if (!disposed) setSetup(null);
@@ -104,6 +125,11 @@ export function WorkspaceScreen({
       disposed = true;
     };
   }, [settings.status === "ready" ? settings.revision : ""]);
+  useEffect(() => {
+    if (settings.status !== "ready") return;
+    if (tab === "providers") void loadProvidersRef.current();
+    if (tab === "projects") void loadProjectsRef.current();
+  }, [tab, settings.status === "ready" ? settings.revision : ""]);
   async function action(fn: () => Promise<void>) {
     setBusy(true);
     setError(null);
@@ -176,61 +202,122 @@ export function WorkspaceScreen({
       setDraft(next);
     }
     setSetup(result);
+    await applySplit(result);
     if (result.operator === "ready") await refresh();
   };
-  const find = async () => {
-    setInventory(await discover({ repositoryPath: repo }));
-    setProviders([]);
-    setMcps([]);
-    setOauth(false);
-  };
-  const syncSelected = async () => {
-    const input = syncSelection.parse({
-      providers,
-      mcps,
-      repositoryPath: repo,
-      trustRepository: trust,
-      revision,
-      mcpUrls: Object.fromEntries(Object.entries(urls).filter(([, v]) => v)),
-      includeMcpOAuthFile: oauth,
+  // The silent split of the legacy profile ran server-side: store its result in the saved settings.
+  async function applySplit(result: z.output<typeof inspectSetup.output>) {
+    const current = settingsRef.current;
+    if (!result.split || current.status !== "ready") return;
+    const base = current.values;
+    await persist({
+      ...base,
+      providers: { ...base.providers, lastSync: result.split.lastSync },
+      projects: applySynced(base.projects, result.split.projects),
     });
-    const profile = await sync(input);
-    if (settings.status !== "ready")
-      throw new Error("Reload settings to select the new snapshot.");
-    const next = { ...draft, bundle: profile };
-    if (!(await settings.save(next, settings.revision)))
-      throw new Error(
-        "Snapshot created, but settings changed. Re-sync to select it.",
-      );
-    setDraft(next);
-    toast.show("Credentials ready for new workspaces.");
+  }
+  const loadProviders = async () => {
+    setProviderStatus(await providersStatusRpc({}));
   };
-  const chooseProvider = (id: string, selected: boolean) =>
-    setProviders(
-      toggle(
-        providers.filter(
-          (p) =>
-            !selected ||
-            (id === "codex-login"
-              ? p !== "openai-key"
-              : id === "openai-key"
-                ? p !== "codex-login"
-                : true),
-        ),
-        id,
-        selected,
-      ),
-    );
-  const providerLabel = (id: string, label: string) =>
-    ({
-      "codex-login": "Codex subscription",
-      "openai-key": "OpenAI API key",
-      "anthropic-key": "Anthropic API key",
-      "gemini-key": "Gemini API key",
-      "github-token": "GitHub repository access",
-    })[id] ?? label;
+  const loadProjects = async () => {
+    setProjectRows((await listProjects({})).projects);
+  };
+  loadProvidersRef.current = () => loadProviders().catch(() => {});
+  loadProjectsRef.current = () => loadProjects().catch(() => {});
+  // Saves settings, then waits for the new revision: a second save in the same action needs it.
+  const persist = async (next: Configuration) => {
+    const current = settingsRef.current;
+    if (current.status !== "ready")
+      throw new Error("Reload settings and try again.");
+    const before = current.revision;
+    if (!(await current.save(settingsSchema.parse(next), before)))
+      throw new Error("Settings changed. Reload and try again.");
+    setDraft(next);
+    draftRef.current = next;
+    for (let i = 0; i < 40; i++) {
+      const now = settingsRef.current;
+      if (now.status === "ready" && now.revision !== before) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+  const persistProjects = (projects: Configuration["projects"]) =>
+    persist({ ...draftRef.current, projects });
+  const reloadStatuses = async () => {
+    await Promise.all([
+      loadProviders().catch(() => {}),
+      loadProjects().catch(() => {}),
+    ]);
+  };
+  const syncProviders = async () => {
+    const result = await providersSyncRpc({});
+    const base = draftRef.current;
+    await persist({
+      ...base,
+      providers: { ...base.providers, lastSync: result.lastSync },
+      projects: applySynced(base.projects, result.projects),
+    });
+    const failed = result.projects.filter((p) => p.error).length;
+    if (result.catalog.error) setError(`Providers synced, but the catalog was not updated: ${result.catalog.error}`);
+    else if (failed) setError(`Providers synced. ${plural(failed, "project")} failed to sync: see the Projects tab.`);
+    else toast.show("Providers synced.");
+    await reloadStatuses();
+  };
+  const projectActions: ProjectsActions = {
+    discover: (path) => discoverProject({ path }),
+    addUrl: async (repository, revision) => {
+      const r = await addProject({ repository, ...(revision ? { revision } : {}) });
+      await persistProjects(r.projects);
+      toast.show("Project added. Approve it to use it in workspaces.");
+      await loadProjects();
+    },
+    addApproved: async (path, revision, mcps) => {
+      const added = await addProject({ path, ...(revision ? { revision } : {}) });
+      await persistProjects(added.projects);
+      const r = await approveProject({ id: added.project.id, approved: true, projectMcps: mcps });
+      await persistProjects(r.projects);
+      toast.show("Project approved. Sync it to use it in workspaces.");
+      await loadProjects();
+    },
+    approve: async (id, mcps) => {
+      const r = await approveProject({ id, approved: true, ...(mcps ? { projectMcps: mcps } : {}) });
+      await persistProjects(r.projects);
+      toast.show("Project approved. Sync it to use it in workspaces.");
+      await loadProjects();
+    },
+    unapprove: async (id) => {
+      const r = await approveProject({ id, approved: false });
+      await persistProjects(r.projects);
+      if (connected) await refreshCatalog({});
+      await loadProjects();
+    },
+    update: async (input) => {
+      const r = await updateProject(input);
+      await persistProjects(r.projects);
+      if (connected) await refreshCatalog({});
+      toast.show("Project saved.");
+      await loadProjects();
+    },
+    sync: async (id) => {
+      const r = await syncProject({ id });
+      const base = draftRef.current;
+      await persistProjects(applySynced(base.projects, [r.project]));
+      if (r.catalog.error) setError(`Project synced, but the catalog was not updated: ${r.catalog.error}`);
+      else toast.show("Project synced.");
+      await loadProjects();
+    },
+    remove: async (id) => {
+      const r = await removeProject({ id });
+      await persistProjects(r.projects);
+      if (connected) await refreshCatalog({});
+      toast.show("Project removed. Running workspaces were not changed.");
+      await loadProjects();
+    },
+    refresh: loadProjects,
+  };
+  const providerSynced = !!draft.providers.lastSync || !!currentBundle;
+  const projectsSynced = draft.projects.filter((p) => p.synced).length;
   const canCreate =
-    connected && saved && !!currentBundle && !!draft.image && !!name && !busy;
+    connected && saved && !!draft.image && !!name && !busy;
   const pad = layout.compact ? 16 : 28;
   return (
     <View
@@ -401,15 +488,27 @@ export function WorkspaceScreen({
                       : "Public gateway endpoint: not set (in-cluster Service)",
                   },
                   {
-                    tab: "credentials",
+                    tab: "providers",
                     icon: "KeyRound",
-                    label: "Credentials",
-                    done: !!currentBundle,
-                    value: currentBundle
-                      ? `Last synced ${new Date(currentBundle.syncedAt).toLocaleString()}`
-                      : "Not synced",
-                    detail: currentBundle
-                      ? `${currentBundle.providers.length} provider${currentBundle.providers.length === 1 ? "" : "s"}, ${currentBundle.mcps.length} MCP server${currentBundle.mcps.length === 1 ? "" : "s"}`
+                    label: "Providers",
+                    done: providerSynced,
+                    value: draft.providers.lastSync
+                      ? `Last synced ${new Date(draft.providers.lastSync.at).toLocaleString()}`
+                      : currentBundle
+                        ? "Legacy credentials synced; sync providers to upgrade"
+                        : "Not synced",
+                    detail: `${plural(draft.providers.selected.length, "provider")} and ${plural(draft.providers.mcps.length, "MCP server")} selected`,
+                  },
+                  {
+                    tab: "projects",
+                    icon: "FolderGit2",
+                    label: "Projects",
+                    done: projectsSynced > 0,
+                    value: draft.projects.length
+                      ? `${projectsSynced} of ${plural(draft.projects.length, "project")} synced`
+                      : "No projects yet",
+                    detail: draft.projects.some((p) => !p.trusted)
+                      ? "Some projects still need approval."
                       : "",
                   },
                   {
@@ -677,306 +776,33 @@ export function WorkspaceScreen({
               {!saved && <Text style={text}>You have unsaved changes.</Text>}
             </Card>
           )}
-          {tab === "credentials" && (
-            <Card
+          {tab === "providers" && (
+            <ProvidersTab
               theme={theme}
-              title="Credentials"
-              icon="KeyRound"
-              description="Reuse the accounts you already have."
-              badge={
-                <Badge
-                  theme={theme}
-                  label={currentBundle ? "Synced" : "Not synced"}
-                  tone={currentBundle ? "success" : "muted"}
-                />
-              }
-            >
-              <Field
-                theme={theme}
-                label="Repository"
-                value={repo}
-                onChange={(v) => {
-                  setRepo(v);
-                  setInventory(null);
-                  setMcps([]);
-                  setTrust(false);
-                  setUrls({});
-                }}
-                placeholder="/path/to/your/repository (optional)"
-                hint="Optional checkout on the main daemon. Leave empty to discover provider credentials and MCPs configured on this host."
-                disabled={busy}
-              />
-              {currentBundle && !inventory && (
-                <View
-                  style={{
-                    padding: 12,
-                    borderRadius: 8,
-                    backgroundColor: theme.colors.surface2,
-                    gap: 5,
-                  }}
-                >
-                  <Text
-                    style={{
-                      ...text,
-                      color: theme.colors.foreground,
-                      fontWeight: "500",
-                    }}
-                  >
-                    Credentials ready for new workspaces
-                  </Text>
-                  <Text style={text}>
-                    {currentBundle.providers
-                      .map((p) => providerLabel(p, p))
-                      .join(", ") || "Configuration only"}
-                    {currentBundle.mcps.length
-                      ? ` · ${currentBundle.mcps.length} MCP server${currentBundle.mcps.length === 1 ? "" : "s"}`
-                      : ""}
-                  </Text>
-                </View>
-              )}
-              {!currentBundle && !inventory && (
-                <Text style={text}>
-                  {draft.bundle
-                    ? "Your saved credentials belong to another connection. Sync them to this cluster."
-                    : "Choose the providers and MCP servers you want to bring into your workspaces."}
-                </Text>
-              )}
-              <View style={{ alignSelf: "flex-start" }}>
-                <Button
-                  theme={theme}
-                  label={inventory ? "Refresh discovery" : "Find credentials"}
-                  icon="Search"
-                  primary={!inventory && !currentBundle}
-                  disabled={busy}
-                  onPress={() => void action(find)}
-                />
-              </View>
-              {inventory && (
-                <View style={{ gap: 12 }}>
-                  <Text
-                    style={{
-                      ...text,
-                      fontWeight: "600",
-                      color: theme.colors.foreground,
-                    }}
-                  >
-                    Providers
-                  </Text>
-                  {inventory.providers
-                    .filter((p) => p.available)
-                    .map((p) => (
-                      <Choice
-                        key={p.id}
-                        theme={theme}
-                        label={providerLabel(p.id, p.label)}
-                        description={
-                          p.id === "codex-login"
-                            ? "Use your existing subscription."
-                            : p.id === "github-token"
-                              ? "For private GitHub repositories."
-                              : p.id === "anthropic-key" ||
-                                  p.id === "gemini-key"
-                                ? "Requires this provider in your workspace image."
-                                : undefined
-                        }
-                        checked={providers.includes(p.id)}
-                        onChange={(v) => chooseProvider(p.id, v)}
-                        disabled={busy}
-                      />
-                    ))}
-                  {!inventory.providers.some((p) => p.available) && (
-                    <Text style={text}>
-                      No reusable provider credentials found on the main host.
-                    </Text>
-                  )}
-                  {inventory.mcps.length > 0 && (
-                    <View
-                      style={{
-                        gap: 4,
-                        borderTopWidth: 1,
-                        borderColor: theme.colors.border,
-                        paddingTop: 14,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          ...text,
-                          fontWeight: "600",
-                          color: theme.colors.foreground,
-                        }}
-                      >
-                        MCP servers
-                      </Text>
-                      {inventory.mcps.map((m) => (
-                        <View key={m.name}>
-                          <Choice
-                            theme={theme}
-                            label={m.name}
-                            description={
-                              m.missing.length
-                                ? `Missing: ${m.missing.join(", ")}`
-                                : m.transport === "STDIO"
-                                  ? "Requires its executable in the workspace image"
-                                  : undefined
-                            }
-                            checked={mcps.includes(m.name)}
-                            onChange={(v) => setMcps(toggle(mcps, m.name, v))}
-                            disabled={busy || m.missing.length > 0}
-                          />
-                          {m.transport === "HTTP" &&
-                            mcps.includes(m.name) &&
-                            m.needsUrl && (
-                              <Field
-                                theme={theme}
-                                label={`Reachable URL for ${m.name}`}
-                                value={urls[m.name] ?? ""}
-                                onChange={(v) =>
-                                  setUrls((prev) => ({ ...prev, [m.name]: v }))
-                                }
-                                hint="Replace localhost with an endpoint reachable from pods."
-                                disabled={busy}
-                              />
-                            )}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                  {inventory.repositoryUrl && (
-                    <View
-                      style={{
-                        borderTopWidth: 1,
-                        borderColor: theme.colors.border,
-                        paddingTop: 10,
-                      }}
-                    >
-                      <Text selectable style={text}>
-                        {inventory.repositoryUrl}
-                      </Text>
-                      <Choice
-                        theme={theme}
-                        label="Trust this repository in new workspaces"
-                        description="Approve its project configuration once for future pods."
-                        checked={trust}
-                        onChange={setTrust}
-                        disabled={busy}
-                      />
-                    </View>
-                  )}
-                </View>
-              )}
-              <Disclosure
-                theme={theme}
-                label="Advanced credential settings"
-                summary="OAuth, revisions & sync details"
-              >
-                {inventory?.repositoryUrl && (
-                  <Field
-                    theme={theme}
-                    label="Branch, tag or commit"
-                    value={revision}
-                    onChange={setRevision}
-                    placeholder="Default branch"
-                    disabled={busy}
-                  />
-                )}
-                {inventory?.mcps
-                  .filter(
-                    (m) =>
-                      m.transport === "HTTP" &&
-                      mcps.includes(m.name) &&
-                      !m.needsUrl,
-                  )
-                  .map((m) => (
-                    <Field
-                      key={m.name}
-                      theme={theme}
-                      label={`Override URL for ${m.name}`}
-                      value={urls[m.name] ?? ""}
-                      onChange={(v) =>
-                        setUrls((prev) => ({ ...prev, [m.name]: v }))
-                      }
-                      placeholder="Keep configured URL"
-                      disabled={busy}
-                    />
-                  ))}
-                {inventory?.oauthFile && (
-                  <Choice
-                    theme={theme}
-                    label="Include the entire MCP OAuth cache"
-                    description="Copies all file-backed OAuth entries, including unselected servers. OS-keychain credentials are not exported."
-                    checked={oauth}
-                    onChange={setOauth}
-                    disabled={busy || !mcps.length}
-                  />
-                )}
-                {inventory?.providers
-                  .filter((p) => !p.available)
-                  .map((p) => (
-                    <Choice
-                      key={p.id}
-                      theme={theme}
-                      label={providerLabel(p.id, p.label)}
-                      description="Not available on the main daemon."
-                      checked={false}
-                      onChange={() => {}}
-                      disabled
-                    />
-                  ))}
-                <Text style={text}>
-                  Only selected credentials are exported to Kubernetes Secrets
-                  in {draft.namespace}. The panel never receives their values.
-                </Text>
-                {currentBundle && !currentBundle.gatewayReady && (
-                  <Text style={text}>
-                    Sync again to include provider and MCP selections in this
-                    profile.
-                  </Text>
-                )}
-                <Text style={text}>
-                  Credentials are snapshots. Existing pods keep their writable
-                  copies. Re-sync after credentials change; OAuth refresh is not
-                  coordinated between pods.
-                </Text>
-                {currentBundle && (
-                  <View style={{ gap: 6 }}>
-                    <Text style={text}>
-                      Last synced:{" "}
-                      {new Date(currentBundle.syncedAt).toLocaleString()}
-                    </Text>
-                    <Text
-                      selectable
-                      style={{ ...text, fontFamily: "monospace" }}
-                    >
-                      {currentBundle.name}
-                    </Text>
-                  </View>
-                )}
-              </Disclosure>
-              {inventory && (
-                <View style={{ gap: 9 }}>
-                  <Button
-                    theme={theme}
-                    label={`Sync selection${providers.length + mcps.length ? ` (${providers.length + mcps.length})` : ""}`}
-                    icon="CloudUpload"
-                    primary
-                    disabled={
-                      busy ||
-                      !saved ||
-                      !connected ||
-                      (!!inventory.repositoryUrl && !trust)
-                    }
-                    onPress={() => void action(syncSelected)}
-                  />
-                  <Text style={text}>
-                    {!connected
-                      ? "Connect your cluster to sync this selection."
-                      : !saved
-                        ? "Save your connection changes before syncing."
-                        : "Only your selection will be shared with new workspaces."}
-                  </Text>
-                </View>
-              )}
-            </Card>
+              text={text}
+              value={draft.providers}
+              status={providerStatus}
+              namespace={draft.namespace}
+              busy={busy}
+              saved={saved}
+              connected={connected}
+              onChange={(next) => patch("providers", next)}
+              onFind={() => void action(loadProviders)}
+              onSave={() => void action(save)}
+              onSync={() => void action(syncProviders)}
+            />
+          )}
+          {tab === "projects" && (
+            <ProjectsTab
+              theme={theme}
+              text={text}
+              projects={projectRows}
+              selectedProviders={draft.providers.selected}
+              busy={busy}
+              saved={saved}
+              connected={connected}
+              actions={projectActions}
+            />
           )}
           {tab === "workspaces" && (
             <Card
@@ -1062,9 +888,9 @@ export function WorkspaceScreen({
                       paddingHorizontal: 16,
                     }}
                   >
-                    {connected && currentBundle
+                    {connected && providerSynced
                       ? "Create a workspace to start working in its own pod."
-                      : "Connect your cluster and sync credentials to get started."}
+                      : "Connect your cluster, sync providers and add a project to get started."}
                   </Text>
                 </View>
               ) : (
