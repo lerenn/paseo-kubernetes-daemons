@@ -1,3 +1,4 @@
+import { pluginEntries } from "../shared/plugins.js";
 import { createHash } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import { nameSchema } from "../shared/contracts.js";
@@ -33,6 +34,7 @@ export async function create(name: string, c: Configuration = defaults()) {
     );
   if (!image)
     throw new Error("Set a workspace image in Kubernetes Workspaces settings.");
+  const plugins = pluginEntries(c.plugins);
   // Server-side apply is idempotent. The CR spec is immutable after creation.
   return JSON.parse(
     await kubectl(
@@ -60,6 +62,15 @@ export async function create(name: string, c: Configuration = defaults()) {
                   secretName: c.bundle.name,
                   configMapName: c.bundle.name,
                   envSecretName: c.bundle.name + "-env",
+                  ...(plugins.length
+                    ? {
+                        plugins: plugins.map((p) => ({
+                          source: p.source,
+                          ...(p.ref ? { ref: p.ref } : {}),
+                          ...(p.configSecret ? { configSecretName: p.configSecret } : {}),
+                        })),
+                      }
+                    : {}),
                 },
                 workingDirectory: c.bundle.repository
                   ? "/workspace/repository"

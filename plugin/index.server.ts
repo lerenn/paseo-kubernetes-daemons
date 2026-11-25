@@ -32,7 +32,13 @@ import {
   projectsCatalog,
   podsStatus,
   podsCheck,
+  pluginsStatus,
+  pluginsAdd,
+  pluginsUpdate,
+  pluginsRemove,
+  pluginsSync,
 } from "./shared/contracts.js";
+import { addPlugin, updatePlugin, removePlugin, pluginsStatus as buildPluginsStatus, syncPlugins } from "./server/plugins.js";
 import { syncAllProviders, syncOneProject, refreshCatalog } from "./server/sync.js";
 import {
   addProject,
@@ -143,6 +149,14 @@ export default function contribute(server: PluginServerContext) {
   server.handle(podsCheck, async (input) => {
     const c = await configuration();
     return buildPodsCheck(input, c, connection(c));
+  });
+  server.handle(pluginsStatus, async () => buildPluginsStatus(await configuration()));
+  server.handle(pluginsAdd, async (input) => addPlugin(await configuration(), input));
+  server.handle(pluginsUpdate, async (input) => updatePlugin(await configuration(), { ...input, ref: input.ref ?? "" }));
+  server.handle(pluginsRemove, async (input) => removePlugin(await configuration(), { source: input.source, ref: input.ref ?? "" }));
+  server.handle(pluginsSync, async (_, { paseo }) => {
+    const c = await configuration();
+    return syncPlugins(c, await catalogDeps(paseo, c));
   });
   server.handle(discoverSources, async ({ repositoryPath }) =>
     discover(repositoryPath),

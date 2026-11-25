@@ -41,6 +41,8 @@ type Provisioner struct {
 	StorageClassName string
 	DockerResources  *corev1.ResourceRequirements
 	DockerDataSize   string
+	// Plugins are installed after the daemon starts; they only apply to workspaces created afterwards.
+	Plugins []PluginEntry
 	// PendingGrace overrides DefaultPendingGrace (negative reports immediately).
 	PendingGrace time.Duration
 }
@@ -112,6 +114,20 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 	if profile.Set != nil {
 		bootstrapSpec["providers"] = profile.providerRefs(p.Providers)
 	}
+	if len(p.Plugins) > 0 {
+		list := make([]interface{}, 0, len(p.Plugins))
+		for _, plugin := range p.Plugins {
+			item := map[string]interface{}{"source": plugin.Source}
+			if plugin.Ref != "" {
+				item["ref"] = plugin.Ref
+			}
+			if plugin.ConfigSecret != "" {
+				item["configSecretName"] = plugin.ConfigSecret
+			}
+			list = append(list, item)
+		}
+		bootstrapSpec["plugins"] = list
+	}
 	obj.SetName(name)
 	obj.SetNamespace(p.Namespace)
 	obj.SetAnnotations(map[string]string{requestAnnotation: digest, optionsAnnotation: optionsDigest})
@@ -143,6 +159,13 @@ func (p *Provisioner) CreateWithRequirements(ctx context.Context, key string, re
 		if _, found, _ := unstructured.NestedMap(obj.Object, "spec", "bootstrap", "providers"); !found {
 			_ = p.Client.Delete(ctx, obj)
 			return nil, errors.New("CRD out of date: apply config/crd.yaml before creating workspaces with provider sets")
+		}
+	}
+	if len(p.Plugins) > 0 {
+		// An old CRD prunes spec.bootstrap.plugins silently: the pod would start without them.
+		if _, found, _ := unstructured.NestedSlice(obj.Object, "spec", "bootstrap", "plugins"); !found {
+			_ = p.Client.Delete(ctx, obj)
+			return nil, errors.New("CRD out of date: apply config/crd.yaml before creating workspaces with plugins")
 		}
 	}
 	return obj, nil

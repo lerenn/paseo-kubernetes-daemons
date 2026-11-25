@@ -33,6 +33,15 @@ type ProfileConfiguration struct {
 	StorageClassName string                       `json:"storageClassName,omitempty"`
 	DockerResources  *corev1.ResourceRequirements `json:"dockerResources,omitempty"`
 	DockerDataSize   string                       `json:"dockerDataSize,omitempty"`
+	Plugins          []PluginEntry                `json:"plugins,omitempty"`
+}
+
+// PluginEntry is one pinned plugin installed into every workspace of the profile.
+type PluginEntry struct {
+	Source string `json:"source"`
+	Ref    string `json:"ref,omitempty"`
+	// ConfigSecret is a Secret whose keys become environment variables of the daemon.
+	ConfigSecret string `json:"configSecret,omitempty"`
 }
 type Catalog struct {
 	Client    client.Client
@@ -78,6 +87,10 @@ func (c Catalog) Load(ctx context.Context) ([]*Provisioner, error) {
 				continue
 			}
 		}
+		if err := validPlugins(entry.Plugins); err != nil {
+			slog.Warn("skipping gateway catalog entry", "index", i, "profile", entry.Profile, "reason", err.Error())
+			continue
+		}
 		if entry.Image == "" {
 			slog.Warn("skipping gateway catalog entry", "index", i, "profile", entry.Profile, "reason", "workspace image is missing")
 			continue
@@ -86,7 +99,7 @@ func (c Catalog) Load(ctx context.Context) ([]*Provisioner, error) {
 			slog.Warn("skipping gateway catalog entry", "index", i, "profile", entry.Profile, "reason", err.Error())
 			continue
 		}
-		result = append(result, &Provisioner{Client: c.Client, Namespace: c.Namespace, Profile: entry.Profile, Providers: entry.Providers, Image: entry.Image, Docker: entry.Docker, Persistent: !entry.Ephemeral, MainConnection: entry.MainConnection,
+		result = append(result, &Provisioner{Client: c.Client, Namespace: c.Namespace, Profile: entry.Profile, Providers: entry.Providers, Image: entry.Image, Docker: entry.Docker, Persistent: !entry.Ephemeral, MainConnection: entry.MainConnection, Plugins: entry.Plugins,
 			Resources: entry.Resources, Storage: entry.Storage, StorageClassName: entry.StorageClassName, DockerResources: entry.DockerResources, DockerDataSize: entry.DockerDataSize})
 	}
 	return result, nil
@@ -115,4 +128,12 @@ func EnsureIdentity(ctx context.Context, c client.Client, namespace string) (ser
 		return "", "", errors.New("gateway identity Secret is invalid or unmanaged")
 	}
 	return string(secret.Data["serverId"]), string(secret.Data["password"]), nil
+}
+
+func validPlugins(plugins []PluginEntry) error {
+	refs := make([]controller.PluginRef, len(plugins))
+	for i, p := range plugins {
+		refs[i] = controller.PluginRef{Source: p.Source, Ref: p.Ref, ConfigSecretName: p.ConfigSecret}
+	}
+	return controller.ValidatePlugins(refs)
 }

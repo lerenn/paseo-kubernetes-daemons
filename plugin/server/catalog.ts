@@ -5,6 +5,7 @@ import {
   type Project,
 } from "../shared/settings.js";
 import { projectId } from "./credentials.js";
+import { pluginEntries, type PluginEntry } from "../shared/plugins.js";
 import { catalogPods, mergePods, validatePods, type CatalogPods } from "../shared/pods.js";
 
 export const CATALOG_NAME = "paseo-workspaces-gateway";
@@ -18,6 +19,8 @@ export interface CatalogEntry extends Partial<CatalogPods> {
   docker: boolean;
   ephemeral: boolean;
   mainConnection?: string;
+  // Plugins every pod daemon installs after it starts; copied into spec.bootstrap.plugins.
+  plugins?: PluginEntry[];
 }
 export interface SyncedNames {
   profile: string;
@@ -28,6 +31,8 @@ export interface CatalogOptions {
   crdCurrent: boolean;
   // Names produced by a sync in this run, keyed by project id; they win over saved settings.
   synced?: Record<string, SyncedNames>;
+  // Config Secrets written in this run, keyed by pluginKey.
+  plugins?: Record<string, { secret?: string }>;
 }
 
 // Saved projects, plus the legacy bundle's repository when settings were not yet split.
@@ -58,6 +63,7 @@ export function buildCatalog(
 ): CatalogEntry[] {
   const seen = new Set<string>();
   const entries: CatalogEntry[] = [];
+  const plugins = options.crdCurrent ? pluginEntries(c.plugins, options.plugins) : [];
   for (const project of effectiveProjects(c)) {
     if (seen.has(project.repository))
       throw new Error("Each repository can only be used by one project.");
@@ -92,6 +98,7 @@ export function buildCatalog(
       docker,
       ephemeral,
       ...(mainConnection ? { mainConnection } : {}),
+      ...(plugins.length ? { plugins } : {}),
       ...catalogPods(pods, docker, ephemeral),
     });
   }

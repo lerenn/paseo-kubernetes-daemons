@@ -70,6 +70,36 @@ export const projectSchema = z.object({
     .default(null),
 });
 export type Project = z.output<typeof projectSchema>;
+// A plugin to install in every pod daemon, added explicitly by the user (never copied from the main
+// daemon). `source` is what `paseo plugin install` accepts (registry slug, git:owner/repo, npm:pkg, URL);
+// `ref` pins a Git branch, tag or commit. `env` values are secrets handed to the plugin as environment
+// variables through a Secret; they are never returned by an RPC.
+export const pluginSource = z
+  .string()
+  .min(1)
+  .max(300)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._\/:@+#~-]*$/, "Use a plugin source without whitespace or option prefixes.");
+export const pluginRef = z
+  .string()
+  .max(250)
+  .refine((v) => v === "" || (/^[A-Za-z0-9][A-Za-z0-9._\/@+-]*$/.test(v) && !v.includes("..")), {
+    message: "Use a branch, tag or commit name without whitespace or option prefixes.",
+  });
+export const pluginEnv = z
+  .record(z.string().max(253).regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().max(8192))
+  .refine((v) => Object.keys(v).length <= 32, { message: "At most 32 variables per plugin." });
+export const pluginSchema = z.object({
+  source: pluginSource,
+  ref: pluginRef.default(""),
+  enabled: z.boolean().default(true),
+  env: pluginEnv.default({}),
+  // Set by the client from plugins.sync: the content digest that was synced and its config Secret.
+  synced: z
+    .object({ digest: z.string(), secret: resourceName.optional(), at: z.string() })
+    .nullable()
+    .default(null),
+});
+export type Plugin = z.output<typeof pluginSchema>;
 export const settingsSchema = z.object({
   context: z.string().max(200).default(""),
   namespace: resourceName.default("paseo-workspaces"),
@@ -88,6 +118,13 @@ export const settingsSchema = z.object({
   bundle: bundleSchema.nullable().default(null),
   providers: providersSchema.default(providersSchema.parse({})),
   projects: z.array(projectSchema).max(100).default([]),
+  plugins: z
+    .array(pluginSchema)
+    .max(16)
+    .default([])
+    .refine((v) => new Set(v.map((p) => p.source + "\0" + p.ref)).size === v.length, {
+      message: "Each plugin source and ref can only be added once.",
+    }),
 });
 export type Configuration = z.output<typeof settingsSchema>;
 // v1 -> v2, data only: the saved bundle becomes the shared provider selection plus one project.

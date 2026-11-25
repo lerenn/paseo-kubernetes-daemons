@@ -166,9 +166,10 @@ export async function publishCatalog(
   deps: SyncDeps,
   status: Status,
   synced?: Record<string, SyncedNames>,
+  plugins?: Record<string, { secret?: string }>,
 ): Promise<CatalogResult> {
   try {
-    const entries = buildCatalog(c, { crdCurrent: status.crdCurrent, synced });
+    const entries = buildCatalog(c, { crdCurrent: status.crdCurrent, synced, plugins });
     await writeCatalog(deps.run, ownerOf(deps.serverId, c), c.namespace, entries);
     return { written: true, entries: entries.length };
   } catch (e) {
