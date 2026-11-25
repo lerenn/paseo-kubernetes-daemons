@@ -27,6 +27,12 @@ type ProfileConfiguration struct {
 	Docker         bool   `json:"docker"`
 	Ephemeral      bool   `json:"ephemeral"`
 	MainConnection string `json:"mainConnection,omitempty"`
+	// Optional pod settings (effective values, already merged by the plugin). See pods.go.
+	Resources        *corev1.ResourceRequirements `json:"resources,omitempty"`
+	Storage          string                       `json:"storage,omitempty"`
+	StorageClassName string                       `json:"storageClassName,omitempty"`
+	DockerResources  *corev1.ResourceRequirements `json:"dockerResources,omitempty"`
+	DockerDataSize   string                       `json:"dockerDataSize,omitempty"`
 }
 type Catalog struct {
 	Client    client.Client
@@ -46,12 +52,18 @@ func (c Catalog) Load(ctx context.Context) ([]*Provisioner, error) {
 	if config.Labels["workspaces.paseo.sh/profile-owner"] == "" {
 		return nil, errors.New("gateway configuration is not owned by the companion")
 	}
-	var entries []ProfileConfiguration
-	if json.Unmarshal([]byte(config.Data["projects.json"]), &entries) != nil || len(entries) > 100 {
+	// Entries decode one by one: a malformed quantity in one entry must not invalidate the others.
+	var raws []json.RawMessage
+	if json.Unmarshal([]byte(config.Data["projects.json"]), &raws) != nil || len(raws) > 100 {
 		return nil, errors.New("gateway project catalog is invalid")
 	}
-	result := make([]*Provisioner, 0, len(entries))
-	for i, entry := range entries {
+	result := make([]*Provisioner, 0, len(raws))
+	for i, raw := range raws {
+		var entry ProfileConfiguration
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			slog.Warn("skipping gateway catalog entry", "index", i, "reason", "invalid entry: "+err.Error())
+			continue
+		}
 		if entry.Image == "" {
 			entry.Image = c.DefaultImage
 		}
@@ -70,7 +82,12 @@ func (c Catalog) Load(ctx context.Context) ([]*Provisioner, error) {
 			slog.Warn("skipping gateway catalog entry", "index", i, "profile", entry.Profile, "reason", "workspace image is missing")
 			continue
 		}
-		result = append(result, &Provisioner{Client: c.Client, Namespace: c.Namespace, Profile: entry.Profile, Providers: entry.Providers, Image: entry.Image, Docker: entry.Docker, Persistent: !entry.Ephemeral, MainConnection: entry.MainConnection})
+		if err := validPodSettings(entry); err != nil {
+			slog.Warn("skipping gateway catalog entry", "index", i, "profile", entry.Profile, "reason", err.Error())
+			continue
+		}
+		result = append(result, &Provisioner{Client: c.Client, Namespace: c.Namespace, Profile: entry.Profile, Providers: entry.Providers, Image: entry.Image, Docker: entry.Docker, Persistent: !entry.Ephemeral, MainConnection: entry.MainConnection,
+			Resources: entry.Resources, Storage: entry.Storage, StorageClassName: entry.StorageClassName, DockerResources: entry.DockerResources, DockerDataSize: entry.DockerDataSize})
 	}
 	return result, nil
 }

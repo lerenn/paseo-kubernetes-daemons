@@ -24,7 +24,11 @@ function fixture() {
     ephemeral: true,
     projects: [
       project("https://github.com/example/split.git", {
-        overrides: { docker: true, ephemeral: false },
+        overrides: {
+          docker: true,
+          ephemeral: false,
+          pods: { compute: { cpuLimit: "4" }, storage: { size: "20Gi", storageClassName: "fast" }, docker: { dataSize: "30Gi" } },
+        },
         synced: { profile: "pw-profile-o-1", providerSet: "pw-providers-o-2", at: "t" },
       }),
       project("https://github.com/example/legacy.git"),
@@ -50,14 +54,24 @@ test("catalog JSON matches the golden file the Go contract test reads", () => {
   }
   assert.equal(json, readFileSync(golden, "utf8"));
   const entries = JSON.parse(json);
-  assert.deepEqual(entries[0], {
+  const { resources, dockerResources, ...head } = entries[0];
+  assert.deepEqual(head, {
     profile: "pw-profile-o-1",
     providers: "pw-providers-o-2",
     image: "ghcr.io/lerenn/paseo-workspace:0.3.0",
     docker: true,
     ephemeral: false,
     mainConnection: "main:6767",
+    storage: "20Gi",
+    storageClassName: "fast",
+    dockerDataSize: "30Gi",
   });
+  assert.equal(resources.limits.cpu, "4");
+  assert.equal(resources.requests.cpu, "250m");
+  assert.equal(dockerResources.limits.memory, "2Gi");
+  // Docker settings are not emitted for a project without Docker.
+  assert.equal("dockerResources" in entries[1], false);
+  assert.equal("storageClassName" in entries[1], false);
   assert.equal(entries.length, 2);
   assert.equal("providers" in entries[1], false);
   assert.equal(entries[1].profile, "pw-profile-o-legacy");

@@ -1,4 +1,5 @@
-# Optional cluster admission limits. Excess pods stay Pending until capacity is freed.
+# Optional cluster admission limits. Pods over the quota are rejected at creation and retried by the operator;
+# pods that fit the quota but not the nodes stay Pending.
 apiVersion: v1
 kind: ResourceQuota
 metadata:

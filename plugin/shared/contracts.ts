@@ -1,5 +1,6 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
+import { podsOverrideSchema, podsSchema } from "./pods.js";
 import { bundleSchema, projectSchema, providerId, providersSchema } from "./settings.js";
 export const nameSchema = z
   .string()
@@ -254,6 +255,8 @@ export const projectsUpdate = defineRpc({
         image: z.string().max(500).nullable().optional(),
         docker: z.boolean().nullable().optional(),
         ephemeral: z.boolean().nullable().optional(),
+        // null removes the project's pod overrides.
+        pods: podsOverrideSchema.nullable().optional(),
       })
       .optional(),
   }),
@@ -288,4 +291,53 @@ export const projectsCatalog = defineRpc({
   name: "projects.catalog",
   input: z.object({}),
   output: catalogResult,
+});
+
+const podsIssue = z.object({ path: z.string(), message: z.string() });
+const podsEstimate = z.object({
+  requests: z.object({ cpu: z.number(), memory: z.number(), scratch: z.number() }),
+  limits: z.object({ cpu: z.number(), memory: z.number(), scratch: z.number() }),
+  storage: z.number(),
+});
+// Pod settings for the Pods tab. `builtin` are the values used when nothing is configured (also the
+// initial settings.pods). `quotas` / `storageClasses` are null when the cluster cannot be read (RBAC or
+// connectivity): the UI then degrades to free text and shows no capacity summary.
+export const podsStatus = defineRpc({
+  name: "pods.status",
+  input: z.object({}),
+  output: z.object({
+    pods: podsSchema,
+    builtin: podsSchema,
+    issues: z.array(podsIssue),
+    quotas: z.array(z.object({ name: z.string(), hard: z.record(z.string(), z.string()) })).nullable(),
+    storageClasses: z
+      .array(
+        z.object({
+          name: z.string(),
+          isDefault: z.boolean(),
+          allowVolumeExpansion: z.boolean(),
+          provisioner: z.string(),
+        }),
+      )
+      .nullable(),
+  }),
+});
+// Validates candidate settings (global, optionally merged with a project override) without saving.
+// Errors block saving; warnings come from the quota and storage classes and never block.
+export const podsCheck = defineRpc({
+  name: "pods.check",
+  input: z.object({
+    pods: podsSchema,
+    override: podsOverrideSchema.optional(),
+    docker: z.boolean().optional(),
+    ephemeral: z.boolean().optional(),
+  }),
+  output: z.object({
+    errors: z.array(podsIssue),
+    warnings: z.array(z.string()),
+    // One pod's total (workspace + Docker sidecar when enabled); cores / bytes.
+    perPod: podsEstimate,
+    // Pods the namespace quota admits; null when unconstrained or unreadable.
+    fit: z.number().nullable(),
+  }),
 });
