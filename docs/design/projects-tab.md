@@ -80,8 +80,7 @@ only narrow.
 "Sync providers" reads the daemon once, then for every *approved* project builds its bundle, applies the
 triples (secrets first, ConfigMap last, same as `credentials.ts:369-371`) and finally rewrites the catalog.
 A failure mid-way leaves the catalog on the old profiles, so projects are never half-updated; the UI
-reports per-project errors. "Sync project" does the same for one project without re-reading unchanged
-shared values being a requirement. Total size check (`credentials.ts:363-368`) stays per profile.
+reports per-project errors. "Sync project" does the same for a single project. Total size check (`credentials.ts:363-368`) stays per profile.
 
 ## 2. Two options for reading providers in the pod
 
