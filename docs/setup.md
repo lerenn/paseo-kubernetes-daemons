@@ -90,12 +90,22 @@ An optional main-daemon endpoint enables reverse host registration. The main dae
 must be reachable from the pod; ordinary pod registration is directional. Configure
 authentication and Service/network policy for your deployment.
 
-## Select and sync
+## Providers and projects
 
-**Discover** reads names and availability on the main host, not credential values
-in the client. It uses `$CODEX_HOME` or `~/.codex` and optionally a local repository
-checkout. Repository configuration overrides same-named MCP entries in the user
-configuration. A repository must have a credential-free HTTPS or SSH origin.
+The panel has five tabs: **Overview**, **Cluster**, **Providers**, **Projects** and
+**Workspaces**. Overview lists the setup steps (cluster, providers, projects) with
+buttons that jump to each tab. Providers are chosen once and shared; each project
+adds only its repository settings.
+
+### Providers tab
+
+**Find providers** reads names and availability on the main host, not credential
+values in the client. It uses `$CODEX_HOME` or `~/.codex`. Each row shows whether the
+item is *Found*, *Selected* and *Synced*, *Out of date* or *Not synced*, and the last
+sync time. **Save selection**, then **Sync providers** writes the shared provider set
+once and refreshes every approved project. The Codex mode (access-only by default, or
+refreshing), the MCP OAuth cache switch and MCP URL overrides are under *Advanced
+provider settings*.
 
 Select only the credentials and MCP definitions to export:
 
@@ -121,14 +131,27 @@ Select only the credentials and MCP definitions to export:
   enabled automatically. OS-keychain entries are not exported. Test compatibility
   with the Codex versions used on both hosts.
 
-Supplying a repository path also requires approving that repository. The approval
-is stored in the selected profile, so new pods do not need to ask for project trust
-again. You can select a branch/tag/commit; the default is the origin's default
-branch. Review project configuration before approving it.
+### Projects tab
 
-**Sync to Kubernetes** creates an immutable versioned file Secret, an environment
-Secret and a non-secret bootstrap ConfigMap. The panel saves only their reference
-and selection metadata in host settings. Raw values never appear in RPC responses,
+A project is a repository that new workspaces can start from. Add one by **repository
+URL** (no project MCP servers) or by **checkout on this daemon**, which reads the
+origin remote and the MCP servers defined only by that checkout. A repository must
+have a credential-free HTTPS or SSH origin. Every project must be **approved**: the
+approval dialog shows the URL, revision and project MCP servers, and is tied to
+exactly that repository. Review project configuration before approving it.
+
+Each project row shows its state (*Synced*, *Out of date*, *Not synced* or
+*Unapproved*), how many providers it uses and how many workspaces run from it.
+**Edit project** sets the branch/tag/commit (default: the origin's default branch),
+an optional subset of the selected providers, project MCP servers, and image, Docker
+and ephemeral-storage overrides. **Sync project** writes only that project's profile.
+**Remove** stops new workspaces for the project only; running workspaces stay
+untouched.
+
+**Sync providers** and **Sync project** create immutable versioned objects: a file
+Secret and environment Secret for the provider set, and a non-secret bootstrap
+ConfigMap per project. The panel saves only their references and selection metadata
+in host settings. Raw values never appear in RPC responses,
 CRs, ConfigMaps, command-line arguments or diagnostic errors. The panel never
 exports credentials in the background.
 
@@ -163,7 +186,7 @@ snapshots that existing environments might still need.
 These are **snapshots**, not a credential broker. Codex can refresh its writable
 pod-local login cache. Bootstrap preserves it on retries/restarts with the same
 profile. Pods do not write tokens back to the main host or to Kubernetes Secrets.
-New workspaces use the last snapshot selected in settings; re-sync after main-host
+New workspaces use the last snapshot selected in settings; re-sync providers after main-host
 credentials change. Multiple clients refreshing the same copied OAuth grant can
 still invalidate one another, depending on the provider. Fully coordinated OAuth
 refresh and a central authenticated MCP proxy are not implemented. A new workspace

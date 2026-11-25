@@ -21,10 +21,11 @@ sidebar menu. The panel checks for the operator and guides setup.
 1. Build/push the operator and bootstrap-enabled workspace images, then apply the
    CRD, operator and main-daemon RBAC manifests.
 2. Save the Kubernetes context, namespace and workspace image in the panel.
-3. Discover provider credentials and Codex MCP definitions from the main host.
-   Optionally select a local repository and approve it once for new pods.
-4. Select the credentials/MCPs to export and click **Sync to Kubernetes**. Only
-   references are saved in plugin settings; values go into Kubernetes Secrets.
+3. On the **Providers** tab, **Find providers** on the main host, select the
+   credentials and MCP servers to share, **Save selection** and **Sync providers**.
+   Only references are saved in plugin settings; values go into Kubernetes Secrets.
+4. On the **Projects** tab, add a repository by URL or local checkout, approve it
+   once for new pods, and **Sync project**. The **Overview** tab tracks these steps.
 5. Create an environment, wait for its daemon to be online, and **Open workspace**.
    Bootstrap prepares Codex authentication, repository checkout, project trust and
    selected MCP definitions before the daemon starts.
@@ -41,7 +42,7 @@ provider environment API keys, and Codex TOML MCP definitions plus their selecte
 environment variables. MCP OAuth file-cache export is an explicit opt-in; OS
 keychains are not exported. These are snapshots: OAuth refresh is not coordinated
 across pods. Re-sync when main-host credentials change. No real credentials are
-synced until you select them and click Sync in the panel.
+synced until you select them and click Sync providers in the panel.
 
 The operator uses Kubernetes owner references for resource cleanup. Optional
 namespace quota and network policy manifests are provided. Physical PV deletion

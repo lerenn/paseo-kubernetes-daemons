@@ -37,7 +37,7 @@ kubernetes_workspace_list({})
 # Export your results before deleting the environment.
 kubernetes_workspace_release({ &quot;name&quot;: &quot;demo&quot; })</code></pre>
 <p>The companion adds these tools to new agent sessions. Release deletes the environment’s pod and PVC; physical volume cleanup follows your StorageClass reclaim policy.</p>
-<div class="note">Initial implementation. Bring your own cluster. The setup panel supports selected credential snapshots, approved repository checkout and Codex bootstrap. Remote Playbooks dispatch and idle shutdown are not included. OAuth refresh is not coordinated across pods.</div>
+<div class="note">Initial implementation. Bring your own cluster. The setup panel supports shared provider snapshots, approved projects and Codex bootstrap. Remote Playbooks dispatch and idle shutdown are not included. OAuth refresh is not coordinated across pods.</div>
 <h2>Explore the project</h2><div class="cards">
 <a class="card" href="getting-started.html"><strong>Getting started</strong><span>Build images, deploy the operator and connect your first environment.</span></a>
 <a class="card" href="reference.html"><strong>Reference</strong><span>Agent tools, environment variables and the custom resource.</span></a>
