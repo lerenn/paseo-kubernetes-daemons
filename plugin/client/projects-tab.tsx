@@ -6,6 +6,13 @@ import type { projectsDiscover, projectsList, projectsUpdate } from "../shared/c
 import { ProjectPodSettings, type CheckPods } from "./pods-tab.js";
 import type { Pods, PodsOverride } from "../shared/pods.js";
 import {
+  LOCAL_SEARCH_THRESHOLD,
+  filterLocal,
+  localAction,
+  localBadge,
+  localState,
+  syncedSummary,
+  type LocalRow,
   plural,
   projectName,
   projectStateBadge,
@@ -20,7 +27,7 @@ export type Discovered = z.output<typeof projectsDiscover.output>;
 export type UpdateInput = z.input<typeof projectsUpdate.input>;
 type ProviderId = NonNullable<ProjectRow["providerSubset"]>[number];
 type Mcp = Discovered["mcps"][number];
-type Approval = { id?: string; path?: string; repository: string; revision: string; mcps: Mcp[]; selected: string[] };
+type Approval = { syncAfter?: boolean; id?: string; path?: string; repository: string; revision: string; mcps: Mcp[]; selected: string[] };
 
 export interface ProjectsActions {
   discover: (path: string) => Promise<Discovered>;
@@ -192,6 +199,8 @@ export function ProjectsTab(props: {
   theme: Theme;
   text: object;
   projects: ProjectRow[] | null;
+  // Projects Paseo knows on this daemon (null when unavailable).
+  local: LocalRow[] | null;
   selectedProviders: string[];
   busy: boolean;
   saved: boolean;
@@ -208,6 +217,9 @@ export function ProjectsTab(props: {
   const [revision, setRevision] = useState("");
   const [approval, setApproval] = useState<Approval | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  // "Review all": candidates still to walk through the approval dialog, one at a time.
+  const [queue, setQueue] = useState<LocalRow[]>([]);
   const writable = props.saved && !busy;
   const heading = { ...(text as object), fontWeight: "600" as const, color: theme.colors.foreground };
   const panel = { backgroundColor: theme.colors.surface2, padding: 14, borderRadius: 8, gap: 12 };
@@ -234,25 +246,105 @@ export function ProjectsTab(props: {
       selected: row.projectMcps.filter((n) => d.mcps.some((m) => m.name === n)),
     });
   };
+  // Every path into approval goes through this dialog: nothing is trusted or synced without it.
+  const startLocal = async (row: LocalRow, rest: LocalRow[] = []) => {
+    const live = (projects ?? []).find((p) => p.id === row.id);
+    setQueue(rest);
+    if (live) return startApproveThenSync(live);
+    const d = await actions.discover(row.path);
+    setApproval({ syncAfter: true, path: row.path, repository: d.repositoryUrl, revision: "", mcps: d.mcps, selected: [] });
+  };
+  const startApproveThenSync = async (row: ProjectRow) => {
+    await startApprove(row);
+    setApproval((a) => (a ? { ...a, syncAfter: true } : a));
+  };
+  const next = async (rest: LocalRow[]) => {
+    const [head, ...tail] = rest;
+    if (head) await startLocal(head, tail);
+    else setQueue([]);
+  };
   const confirm = async () => {
     if (!approval) return;
-    if (approval.id) await actions.approve(approval.id, approval.path ? approval.selected : undefined);
-    else if (approval.path) await actions.addApproved(approval.path, approval.revision, approval.selected);
+    const a = approval;
+    let id = a.id;
+    if (a.id) await actions.approve(a.id, a.path ? a.selected : undefined);
+    else if (a.path) {
+      id = (local ?? []).find((r) => r.repository === a.repository)?.id ?? undefined;
+      await actions.addApproved(a.path, a.revision, a.selected);
+    }
+    if (a.syncAfter && id && props.connected) await actions.sync(id);
     setApproval(null);
     setSource("");
     setRevision("");
+    await next(queue);
   };
-  const synced = (projects ?? []).filter((p) => p.state === "synced").length;
+  const local = props.local;
+  const { synced, total } = syncedSummary(projects ?? [], local);
+  const visibleLocal = filterLocal(local ?? [], query);
+  const pending = (local ?? []).filter((r) => {
+    const a = localAction(localState(r, projects));
+    return a === "add" || a === "approve";
+  });
   return (
     <Card
       theme={theme}
       title="Projects"
       icon="FolderGit2"
       description="Repositories that new workspaces can start from."
-      badge={<Badge theme={theme} label={projects ? `${synced} of ${plural(projects.length, "project")} synced` : "Loading"} tone={projects?.length && synced === projects.length ? "success" : "muted"} />}
+      badge={<Badge theme={theme} label={projects ? `${synced} of ${plural(total, "project")} synced` : "Loading"} tone={total > 0 && synced === total ? "success" : "muted"} />}
     >
+      {local && local.length > 0 && (
+        <View style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <Text style={{ ...heading, flex: 1 }}>Projects on this daemon</Text>
+            {pending.length > 0 && (
+              <Button
+                theme={theme}
+                label={`Review all (${pending.length})`}
+                disabled={!writable}
+                onPress={() => void startLocal(pending[0]!, pending.slice(1))}
+              />
+            )}
+          </View>
+          <Text style={text}>
+            Projects Paseo already knows here. Adding one opens its approval dialog, then syncs it. “Review all” walks the dialog one project at a time; nothing is approved without it.
+          </Text>
+          {local.length > LOCAL_SEARCH_THRESHOLD && (
+            <Field theme={theme} label="Search" value={query} onChange={setQuery} placeholder="Name, path or repository" />
+          )}
+          {visibleLocal.map((r) => {
+            const state = r.status === "skipped" ? "skipped" : localState(r, projects);
+            const badge = localBadge(state);
+            const act = localAction(state);
+            return (
+              <View key={`${r.path}`} style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", borderTopWidth: 1, borderColor: theme.colors.border, paddingTop: 10 }}>
+                <View style={{ flex: 1, minWidth: 200, gap: 2 }}>
+                  <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.foreground }}>{r.name}</Text>
+                  <Text selectable style={text}>{r.repository ? `${r.host ?? ""} · ${r.repository}` : (r.reason ?? "")}</Text>
+                  <Text selectable style={text}>{r.path}</Text>
+                </View>
+                <Badge theme={theme} label={badge.label} tone={badge.tone} />
+                {act && (
+                  <Button
+                    theme={theme}
+                    label={act === "add" ? "Add & sync" : act === "approve" ? "Approve & sync" : act === "sync" ? "Sync" : "Sync again"}
+                    primary={act !== "resync"}
+                    disabled={!writable || (!props.connected && act !== "add" && act !== "approve")}
+                    onPress={() =>
+                      act === "sync" || act === "resync"
+                        ? void actions.sync(r.id!)
+                        : void startLocal(r)
+                    }
+                  />
+                )}
+              </View>
+            );
+          })}
+          {visibleLocal.length === 0 && <Text style={text}>No match.</Text>}
+        </View>
+      )}
+      <Disclosure theme={theme} label="Add another project" summary="By repository URL or checkout path">
       <View style={{ gap: 10 }}>
-        <Text style={heading}>Add a project</Text>
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
           <Button theme={theme} label="Repository URL" primary={mode === "url"} disabled={busy} onPress={() => { setMode("url"); setApproval(null); }} />
           <Button theme={theme} label="Checkout on this daemon" primary={mode === "path"} disabled={busy} onPress={() => { setMode("path"); setApproval(null); }} />
@@ -279,6 +371,7 @@ export function ProjectsTab(props: {
         </View>
         {!props.saved && <Text style={text}>Save your changes before editing projects.</Text>}
       </View>
+      </Disclosure>
       {approval && (
         <View style={panel}>
           <Text style={heading}>Approve {projectName(approval.repository)}?</Text>
@@ -308,8 +401,9 @@ export function ProjectsTab(props: {
             )
           )}
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-            <Button theme={theme} label={approval.id ? "Approve" : "Add and approve"} primary disabled={busy} onPress={() => void confirm()} />
-            <Button theme={theme} label="Cancel" onPress={() => setApproval(null)} />
+            <Button theme={theme} label={approval.syncAfter ? (approval.id ? "Approve & sync" : "Add, approve & sync") : approval.id ? "Approve" : "Add and approve"} primary disabled={busy} onPress={() => void confirm()} />
+            <Button theme={theme} label={queue.length ? "Skip" : "Cancel"} onPress={() => { setApproval(null); void next(queue); }} />
+            {queue.length > 0 && <Button theme={theme} label="Stop review" onPress={() => { setApproval(null); setQueue([]); }} />}
           </View>
         </View>
       )}

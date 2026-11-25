@@ -164,6 +164,8 @@ have a credential-free HTTPS or SSH origin. Every project must be **approved**: 
 approval dialog shows the URL, revision and project MCP servers, and is tied to
 exactly that repository. Review project configuration before approving it.
 
+**Projects on this daemon** lists the projects Paseo already knows on the daemon where the plugin runs (name, origin, path), with **Add & sync**, **Sync** and **Review all**. Both open the approval dialog first, one project at a time, so nothing is trusted without it. Non-Git directories and repositories without an origin, with credentials in it, or with an unsupported scheme are listed as *Skipped* with a reason. **Add another project** keeps the URL and checkout-path forms. No new plugin permission is needed.
+
 Each project row shows its state (*Synced*, *Out of date*, *Not synced* or
 *Unapproved*), how many providers it uses and how many workspaces run from it.
 **Edit project** sets the branch/tag/commit (default: the origin's default branch),

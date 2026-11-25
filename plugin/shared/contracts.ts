@@ -228,6 +228,25 @@ export const projectsDiscover = defineRpc({
     ),
   }),
 });
+// Projects Paseo knows on this daemon, with their status against the plugin's projects.
+export const projectsDiscoverLocal = defineRpc({
+  name: "projects.discover-local",
+  input: z.object({}),
+  output: z.object({
+    candidates: z.array(
+      z.object({
+        name: z.string(),
+        path: z.string(),
+        id: z.string().nullable(),
+        repository: z.string().nullable(),
+        host: z.string().nullable(),
+        status: z.enum(["not-added", "unapproved", "not-synced", "synced", "skipped"]),
+        reason: z.string().optional(),
+      }),
+    ),
+    truncated: z.boolean(),
+  }),
+});
 const nextProjects = z.object({
   project: projectSchema,
   // The whole next settings.projects value.

@@ -124,3 +124,56 @@ export function pendingReason(phase: string, message: string) {
 }
 export const PENDING_HELP =
   "Quota rejections mean the namespace quota is full: raise it or lower the pod requests. A node-capacity shortfall leaves the pod Pending until nodes free up.";
+
+// ---- "Projects on this daemon" (candidates from projects.discoverLocal) ----
+
+export interface LocalRow {
+  name: string;
+  path: string;
+  id: string | null;
+  repository: string | null;
+  host: string | null;
+  status: "not-added" | "unapproved" | "not-synced" | "synced" | "skipped";
+  reason?: string | undefined;
+}
+export const LOCAL_SEARCH_THRESHOLD = 8;
+
+// The server only knows whether a project was ever synced; the live status adds "out of date".
+export function localState(row: LocalRow, live: { id: string; state: string }[] | null) {
+  const found = row.id ? live?.find((p) => p.id === row.id) : undefined;
+  return found ? found.state : row.status;
+}
+export const localBadge = (state: string): { label: string; tone: Tone } =>
+  state === "not-added"
+    ? { label: "Not added", tone: "muted" }
+    : state === "skipped"
+      ? { label: "Skipped", tone: "muted" }
+      : projectStateBadge(state);
+export const localAction = (state: string): "add" | "approve" | "sync" | "resync" | null =>
+  state === "not-added"
+    ? "add"
+    : state === "unapproved"
+      ? "approve"
+      : state === "not-synced"
+        ? "sync"
+        : state === "out-of-date"
+          ? "resync"
+          : null;
+export function filterLocal(rows: LocalRow[], query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter((r) =>
+    [r.name, r.path, r.repository ?? "", r.reason ?? ""].some((v) => v.toLowerCase().includes(q)),
+  );
+}
+// "X of Y projects synced": Y counts the plugin's projects plus daemon candidates not yet added.
+export function syncedSummary(
+  projects: { state: string }[],
+  local: LocalRow[] | null,
+) {
+  const extra = (local ?? []).filter((r) => r.status === "not-added").length;
+  return {
+    synced: projects.filter((p) => p.state === "synced").length,
+    total: projects.length + extra,
+  };
+}

@@ -47,3 +47,23 @@ test("issueFor and pendingReason", () => {
   assert.equal(pendingReason("Ready", "x"), null);
   assert.equal(pendingReason("Pending", ""), null);
 });
+
+import { filterLocal, localAction, localBadge, localState, syncedSummary, type LocalRow } from "./view.js";
+const row = (o: Partial<LocalRow>): LocalRow => ({ name: "n", path: "/p", id: "i1", repository: "https://github.com/a/b", host: "github.com", status: "not-added", ...o });
+test("local candidates: live state overrides, actions, badges", () => {
+  assert.equal(localState(row({ status: "synced" }), [{ id: "i1", state: "out-of-date" }]), "out-of-date");
+  assert.equal(localState(row({ status: "synced" }), null), "synced");
+  assert.equal(localAction("not-added"), "add");
+  assert.equal(localAction("unapproved"), "approve");
+  assert.equal(localAction("not-synced"), "sync");
+  assert.equal(localAction("out-of-date"), "resync");
+  assert.equal(localAction("synced"), null);
+  assert.equal(localBadge("not-added").label, "Not added");
+  assert.equal(localBadge("skipped").label, "Skipped");
+});
+test("local candidates: search and header summary", () => {
+  const rows = [row({ name: "alpha" }), row({ name: "beta", path: "/x/beta" })];
+  assert.equal(filterLocal(rows, "BET").length, 1);
+  assert.equal(filterLocal(rows, " ").length, 2);
+  assert.deepEqual(syncedSummary([{ state: "synced" }, { state: "unapproved" }], [row({}), row({ status: "synced" }), row({ status: "skipped" })]), { synced: 1, total: 3 });
+});

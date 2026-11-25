@@ -23,6 +23,7 @@ import {
   providersSync,
   projectsList,
   projectsDiscover,
+  projectsDiscoverLocal,
   projectsAdd,
   projectsUpdate,
   projectsApprove,
@@ -35,6 +36,7 @@ import {
 import { syncAllProviders, syncOneProject, refreshCatalog } from "./server/sync.js";
 import {
   addProject,
+  discoverLocal,
   updateProject,
   approveProject,
   removeProject,
@@ -105,6 +107,9 @@ export default function contribute(server: PluginServerContext) {
     const c = await configuration();
     return projectsStatus(c, await serverId(paseo), connection(c));
   });
+  server.handle(projectsDiscoverLocal, async (_, { paseo }) =>
+    discoverLocal(await configuration(), (await paseo.projects.list()).projects),
+  );
   server.handle(projectsDiscover, async ({ path }) => discoverProject(path));
   server.handle(projectsAdd, async (input) => addProject(await configuration(), input));
   server.handle(projectsUpdate, async (input) => updateProject(await configuration(), input));

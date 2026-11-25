@@ -14,6 +14,8 @@ import {
   syncProject,
   type SourceOptions,
 } from "./credentials.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mergePods, validatePods, type PodsOverride } from "../shared/pods.js";
 import { effectiveProjects } from "./catalog.js";
 import { projectInput, readProviderSet, type SetInfo } from "./sync.js";
@@ -310,4 +312,107 @@ export async function providersStatus(
     set: set ? { name: set.name, providers: set.providers, mcps: set.mcps } : null,
     ...(clusterError ? { clusterError } : {}),
   };
+}
+
+// ---- projects Paseo already knows on this daemon ----
+
+const run = promisify(execFile);
+const MAX_CANDIDATES = 200;
+
+// The slice of paseo.projects.list() this module needs.
+export interface DaemonProject {
+  projectId: string;
+  projectDisplayName: string;
+  projectCustomName?: string | null;
+  projectRootPath: string;
+  projectKind: "directory" | "git" | "non_git";
+}
+export type LocalStatus = "not-added" | "unapproved" | "not-synced" | "synced" | "skipped";
+export interface LocalCandidate {
+  name: string;
+  path: string;
+  id: string | null;
+  // Credential-free by construction: only set when repositoryUrl() accepted the origin.
+  repository: string | null;
+  host: string | null;
+  status: LocalStatus;
+  reason?: string;
+}
+export type OriginReader = (path: string) => Promise<string>;
+
+export const readOrigin: OriginReader = async (path) =>
+  (
+    await run("git", ["-C", path, "remote", "get-url", "origin"], {
+      timeout: 5000,
+    })
+  ).stdout.trim();
+
+export const repositoryHost = (repository: string) => {
+  const scp = /^git@([^:]+):/.exec(repository);
+  if (scp) return scp[1] ?? null;
+  try {
+    return new URL(repository).hostname || null;
+  } catch {
+    return null;
+  }
+};
+
+// Never echoes the origin: a rejected URL may carry credentials.
+async function candidate(
+  d: DaemonProject,
+  c: Configuration,
+  origin: OriginReader,
+): Promise<LocalCandidate> {
+  const base = {
+    name: d.projectCustomName || d.projectDisplayName,
+    path: d.projectRootPath,
+    id: null,
+    repository: null,
+    host: null,
+  };
+  const skip = (reason: string): LocalCandidate => ({ ...base, status: "skipped", reason });
+  if (d.projectKind !== "git") return skip("Not a Git repository.");
+  let url: string;
+  try {
+    url = repositoryUrl(await origin(d.projectRootPath));
+  } catch (e) {
+    const raw = (e as { code?: unknown; stderr?: unknown }) ?? {};
+    return skip(
+      raw.stderr !== undefined || raw.code !== undefined
+        ? "No origin remote (local-only repository)."
+        : "The origin has credentials or is not an HTTPS or SSH URL.",
+    );
+  }
+  const added = effectiveProjects(c).find((p) => p.repository === url);
+  const status: LocalStatus = !added
+    ? "not-added"
+    : !added.trusted
+      ? "unapproved"
+      : added.synced
+        ? "synced"
+        : "not-synced";
+  return { ...base, id: projectId(url), repository: url, host: repositoryHost(url), status };
+}
+
+export async function discoverLocal(
+  c: Configuration,
+  list: DaemonProject[],
+  origin: OriginReader = readOrigin,
+) {
+  const out: LocalCandidate[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < Math.min(list.length, MAX_CANDIDATES); i += 8) {
+    const rows = await Promise.all(
+      list.slice(i, i + 8).map((d) => candidate(d, c, origin)),
+    );
+    for (const r of rows) {
+      // Several daemon projects (clones, worktrees) can share one origin: one candidate each.
+      if (r.repository) {
+        if (seen.has(r.repository)) continue;
+        seen.add(r.repository);
+      }
+      out.push(r);
+    }
+  }
+  return { candidates: out, truncated: list.length > MAX_CANDIDATES };
 }
