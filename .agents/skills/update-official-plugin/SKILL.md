@@ -10,7 +10,7 @@ the registry never scans our repository. An update is a new submission issue nam
 tag; the bot opens a "Review" PR and a reviewer merges it.
 
 **Registry status (checked 2026-11-24): this plugin is NOT listed.** There is no
-`plugins/lerenn/paseo-kubernetes-workspaces.json` (404) and no record for it under
+`plugins/lerenn/paseo-kubernetes-daemons.json` (404) and no record for it under
 `plugins/lerenn/` (only excalidraw, mail, playbooks). So the first run is a *new
 submission*, not an update, and no registry id is known yet: do not invent one. The id is
 assigned by the bot (by convention `lerenn/<name>`, e.g. `lerenn/mail`); the manifest id is
@@ -22,7 +22,7 @@ before step 5 (unless they already said to go ahead).
 
 ## Repository facts
 
-- Repo: `lerenn/paseo-kubernetes-workspaces`. The Paseo plugin lives in the **`plugin/`
+- Repo: `lerenn/paseo-kubernetes-daemons`. The Paseo plugin lives in the **`plugin/`
   subfolder** (manifest `plugin/paseo-plugin.json`, icon `plugin/assets/icon.png`); the repo
   also contains the Go operator, the Helm chart and the workspace image.
 - Version: `plugin/package.json` `version` and `charts/paseo-workspaces/Chart.yaml`
@@ -38,7 +38,7 @@ before step 5 (unless they already said to go ahead).
 ```bash
 git fetch --tags origin
 git tag --list 'v*' --sort=-v:refname | head -1           # latest tag, e.g. v0.2.5
-gh api repos/lerenn/paseo-kubernetes-workspaces/commits/<tag> -q .sha   # the commit it points at
+gh api repos/lerenn/paseo-kubernetes-daemons/commits/<tag> -q .sha   # the commit it points at
 git show origin/main:plugin/package.json | grep '"version"'
 ```
 
@@ -82,7 +82,7 @@ Use this exact shape (the form fields are parsed: keep `### Source` and `### Cat
 ```markdown
 ### Source
 
-https://github.com/lerenn/paseo-kubernetes-workspaces/tree/<latest-tag>/plugin
+https://github.com/lerenn/paseo-kubernetes-daemons/tree/<latest-tag>/plugin
 
 ### Categories
 

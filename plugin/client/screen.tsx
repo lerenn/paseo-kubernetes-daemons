@@ -381,7 +381,7 @@ export function WorkspaceScreen({
               Run Paseo workspaces as pods on your Kubernetes cluster.
             </Text>
           </View>
-          <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-workspaces/blob/main/docs/setup.md">
+          <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-daemons/blob/main/docs/setup.md">
             Setup guide
           </ExternalLink>
         </View>
@@ -789,7 +789,7 @@ export function WorkspaceScreen({
                     Use your chosen namespace and bind the plugin Role to the
                     main daemon’s ServiceAccount.
                   </Text>
-                  <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-workspaces/blob/main/docs/setup.md">
+                  <ExternalLink href="https://github.com/lerenn/paseo-kubernetes-daemons/blob/main/docs/setup.md">
                     Full installation guide
                   </ExternalLink>
                 </Disclosure>

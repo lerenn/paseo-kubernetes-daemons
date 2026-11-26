@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
-	"github.com/lerenn/paseo-kubernetes-workspaces/internal/gateway"
+	"github.com/lerenn/paseo-kubernetes-daemons/internal/controller"
+	"github.com/lerenn/paseo-kubernetes-daemons/internal/gateway"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"os"

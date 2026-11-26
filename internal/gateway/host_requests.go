@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
+	"github.com/lerenn/paseo-kubernetes-daemons/internal/controller"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"

@@ -1,4 +1,4 @@
-# paseo-kubernetes-workspaces
+# paseo-kubernetes-daemons
 
 Run Paseo workspace daemons in isolated Kubernetes pods with resource limits and
 lifecycle management. Initial implementation: Go operator and TypeScript companion
