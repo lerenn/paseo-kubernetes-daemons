@@ -276,10 +276,13 @@ export function Badge({
   theme,
   label,
   tone = "muted",
+  alignSelf = "flex-start",
 }: {
   theme: Theme;
   label: string;
   tone?: "muted" | "success" | "warning";
+  /** Use "center" when the badge sits in an alignItems:center row. */
+  alignSelf?: "flex-start" | "center";
 }) {
   const color =
     tone === "success"
@@ -294,7 +297,7 @@ export function Badge({
         paddingVertical: 5,
         borderRadius: 6,
         backgroundColor: theme.colors.surface2,
-        alignSelf: "flex-start",
+        alignSelf,
       }}
     >
       <Text style={{ fontSize: 13, lineHeight: 17, color, fontWeight: "500" }}>

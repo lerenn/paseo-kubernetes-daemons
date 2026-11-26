@@ -174,6 +174,7 @@ export function WorkspacesSection({
                       </View>
                       <Badge
                         theme={theme}
+                        alignSelf="center"
                         label={
                           row.hostStatus === "online" ? "Online" : row.phase
                         }
