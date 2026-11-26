@@ -2,7 +2,7 @@
 
 Status: accepted for the initial implementation.
 
-Each `PaseoWorkspace` describes one execution environment. A Go controller creates
+Each `PaseoDaemon` describes one execution environment. A Go controller creates
 one Pod and ClusterIP Service, plus either a PVC or an ephemeral emptyDir volume. Managed API objects carry controller owner references;
 deleting the CR garbage-collects them. Physical volume deletion depends on the
 StorageClass reclaim policy; use `Delete` for automatic disk cleanup. With persistent storage, a replacement Pod reattaches the same PVC, preserving

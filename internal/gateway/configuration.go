@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const CatalogName = "paseo-workspaces-gateway"
+const CatalogName = "paseo-daemons-gateway"
 
 type ProfileConfiguration struct {
 	Profile string `json:"profile"`
@@ -58,7 +58,7 @@ func (c Catalog) Load(ctx context.Context) ([]*Provisioner, error) {
 		}
 		return nil, err
 	}
-	if config.Labels["workspaces.paseo.sh/profile-owner"] == "" {
+	if config.Labels["daemons.paseo.sh/profile-owner"] == "" {
 		return nil, errors.New("gateway configuration is not owned by the companion")
 	}
 	// Entries decode one by one: a malformed quantity in one entry must not invalidate the others.
@@ -116,7 +116,7 @@ func EnsureIdentity(ctx context.Context, c client.Client, namespace string) (ser
 			return "", "", err
 		}
 		immutable := true
-		secret = corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: namespace, Labels: map[string]string{"app.kubernetes.io/managed-by": "paseo-workspaces-operator"}}, Immutable: &immutable, Data: map[string][]byte{"serverId": []byte(randomID()), "password": []byte(base64.RawURLEncoding.EncodeToString(bytes))}}
+		secret = corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: namespace, Labels: map[string]string{"app.kubernetes.io/managed-by": "paseo-daemons-operator"}}, Immutable: &immutable, Data: map[string][]byte{"serverId": []byte(randomID()), "password": []byte(base64.RawURLEncoding.EncodeToString(bytes))}}
 		if err = c.Create(ctx, &secret); apierrors.IsAlreadyExists(err) {
 			err = c.Get(ctx, key, &secret)
 		}
@@ -124,7 +124,7 @@ func EnsureIdentity(ctx context.Context, c client.Client, namespace string) (ser
 	if err != nil {
 		return "", "", err
 	}
-	if secret.Labels["app.kubernetes.io/managed-by"] != "paseo-workspaces-operator" || len(secret.Data["password"]) < 32 || len(secret.Data["serverId"]) == 0 {
+	if secret.Labels["app.kubernetes.io/managed-by"] != "paseo-daemons-operator" || len(secret.Data["password"]) < 32 || len(secret.Data["serverId"]) == 0 {
 		return "", "", errors.New("gateway identity Secret is invalid or unmanaged")
 	}
 	return string(secret.Data["serverId"]), string(secret.Data["password"]), nil

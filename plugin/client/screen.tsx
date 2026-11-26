@@ -375,7 +375,7 @@ export function WorkspaceScreen({
                 fontWeight: "700",
               }}
             >
-              Kubernetes Workspaces
+              Kubernetes Daemons
             </Text>
             <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>
               Run Paseo workspaces as pods on your Kubernetes cluster.
@@ -634,7 +634,7 @@ export function WorkspaceScreen({
               <Field
                 theme={theme}
                 label="Workspace image"
-                placeholder="registry.example.com/paseo-workspace:latest"
+                placeholder="registry.example.com/paseo-daemon:latest"
                 value={draft.image}
                 onChange={(v) => patch("image", v)}
                 disabled={busy}

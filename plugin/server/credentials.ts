@@ -383,7 +383,7 @@ export async function sync(
   const meta = {
     name,
     namespace: c.namespace,
-    labels: { "workspaces.paseo.sh/profile-owner": owner },
+    labels: { "daemons.paseo.sh/profile-owner": owner },
   };
   const secret = {
     apiVersion: "v1",
@@ -436,7 +436,7 @@ export async function sync(
 }
 
 // ---- Shared provider set + thin project profile (design: docs/design/projects-tab.md sections 1-2) ----
-export const OWNER_LABEL = "workspaces.paseo.sh/profile-owner";
+export const OWNER_LABEL = "daemons.paseo.sh/profile-owner";
 export function ownerOf(serverId: string, c: Configuration) {
   return createHash("sha256")
     .update(JSON.stringify([serverId, scopeOf(c)]))
@@ -607,7 +607,7 @@ export async function syncProviders(
     owner,
     c.namespace,
     name,
-    { "workspaces.paseo.sh/kind": "providers" },
+    { "daemons.paseo.sh/kind": "providers" },
     files,
     vars,
     {
@@ -698,7 +698,7 @@ export async function syncProject(
       owner,
       c.namespace,
       name,
-      { "workspaces.paseo.sh/kind": "project", "workspaces.paseo.sh/project": id },
+      { "daemons.paseo.sh/kind": "project", "daemons.paseo.sh/project": id },
       files,
       vars,
       { "bootstrap.json": JSON.stringify(bootstrap) },

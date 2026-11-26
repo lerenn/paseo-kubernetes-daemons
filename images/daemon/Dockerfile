@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git openssh-cli
     && rm -rf /var/lib/apt/lists/*
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
-COPY bootstrap.py git-askpass.py install-plugins.py /usr/local/lib/paseo-workspace/
-RUN chmod 755 /usr/local/lib/paseo-workspace/*.py
+COPY bootstrap.py git-askpass.py install-plugins.py /usr/local/lib/paseo-daemon/
+RUN chmod 755 /usr/local/lib/paseo-daemon/*.py
 # Codex and Claude Code are included (Claude authenticates with the synced ANTHROPIC_API_KEY).
 # Install other provider/MCP executables in a derived image.
 ENV HOME=/workspace PASEO_HOME=/workspace/.paseo CODEX_HOME=/workspace/.codex PASEO_LISTEN=0.0.0.0:6767 PASEO_RELAY_ENABLED=false

@@ -3,12 +3,12 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: paseo-workspaces-plugin
+  name: paseo-daemons-plugin
   namespace: {{ .Release.Namespace }}
   labels: {{- include "pw.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [workspaces.paseo.sh]
-    resources: [paseoworkspaces]
+  - apiGroups: [daemons.paseo.sh]
+    resources: [paseodaemons]
     verbs: [get, list, create, patch, delete]
   - apiGroups: ['']
     resources: [secrets, configmaps]
@@ -18,7 +18,7 @@ rules:
     verbs: [get, list]
   - apiGroups: [apps]
     resources: [deployments]
-    resourceNames: [paseo-workspaces-operator]
+    resourceNames: [paseo-daemons-operator]
     verbs: [get]
 ---
 {{- end }}
@@ -27,7 +27,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ .Release.Namespace }}-paseo-workspaces-plugin-storageclasses
+  name: {{ .Release.Namespace }}-paseo-daemons-plugin-storageclasses
   labels: {{- include "pw.labels" . | nindent 4 }}
 rules:
   - apiGroups: [storage.k8s.io]
@@ -56,14 +56,14 @@ metadata:
 spec:
   podSelector:
     matchExpressions:
-      - key: workspaces.paseo.sh/uid
+      - key: daemons.paseo.sh/uid
         operator: Exists
   policyTypes: [Ingress]
   ingress:
     - from:
         - podSelector:
             matchLabels:
-              workspaces.paseo.sh/access: main
+              daemons.paseo.sh/access: main
       ports:
         - protocol: TCP
           port: 6767

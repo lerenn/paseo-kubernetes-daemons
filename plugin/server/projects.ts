@@ -174,7 +174,7 @@ type Workspace = { spec?: { bootstrap?: { configMapName?: string } } };
 // current/legacy profile. Lookups are bounded and failures just leave a workspace uncounted.
 export async function workspaceCounts(c: Configuration, run: Kubectl) {
   const list = JSON.parse(
-    await run(["get", "paseoworkspaces.workspaces.paseo.sh", "-o", "json"]),
+    await run(["get", "paseodaemons.daemons.paseo.sh", "-o", "json"]),
   ) as { items: Workspace[] };
   const known = new Map<string, string>();
   for (const p of effectiveProjects(c))

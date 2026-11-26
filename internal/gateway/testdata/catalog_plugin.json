@@ -2,7 +2,7 @@
   {
     "profile": "pw-profile-o-1",
     "providers": "pw-providers-o-2",
-    "image": "ghcr.io/lerenn/paseo-workspace:0.3.1",
+    "image": "ghcr.io/lerenn/paseo-daemon:0.3.1",
     "docker": true,
     "ephemeral": false,
     "mainConnection": "main:6767",
@@ -36,7 +36,7 @@
   },
   {
     "profile": "pw-profile-o-legacy",
-    "image": "ghcr.io/lerenn/paseo-workspace:0.3.1",
+    "image": "ghcr.io/lerenn/paseo-daemon:0.3.1",
     "docker": false,
     "ephemeral": true,
     "mainConnection": "main:6767",

@@ -1,5 +1,5 @@
 // Checks that the four version places agree: plugin/package.json, plugin/package-lock.json,
-// charts/paseo-workspaces/Chart.yaml (version + appVersion) and DEFAULT_WORKSPACE_IMAGE.
+// charts/paseo-daemons/Chart.yaml (version + appVersion) and DEFAULT_WORKSPACE_IMAGE.
 // When a base commit is given and the version changed against it, it must be greater than
 // the latest vX.Y.Z tag. Usage: node check-version.mjs [<base-commit>]
 import { execFileSync } from "node:child_process";
@@ -26,8 +26,8 @@ const found = {
   "plugin/package.json": pkg,
   "plugin/package-lock.json (version)": lock.version,
   "plugin/package-lock.json (packages[''])": lock.packages?.[""]?.version,
-  "Chart.yaml version": grab("charts/paseo-workspaces/Chart.yaml", /^version: (\S+)$/m, "version"),
-  "Chart.yaml appVersion": grab("charts/paseo-workspaces/Chart.yaml", /^appVersion: "?([^"\s]+)"?$/m, "appVersion"),
+  "Chart.yaml version": grab("charts/paseo-daemons/Chart.yaml", /^version: (\S+)$/m, "version"),
+  "Chart.yaml appVersion": grab("charts/paseo-daemons/Chart.yaml", /^appVersion: "?([^"\s]+)"?$/m, "appVersion"),
   "DEFAULT_WORKSPACE_IMAGE": grab("plugin/shared/settings.ts", /DEFAULT_WORKSPACE_IMAGE = "[^"]*:([^":]+)"/, "DEFAULT_WORKSPACE_IMAGE tag"),
 };
 const bad = Object.entries(found).filter(([, v]) => v !== pkg);

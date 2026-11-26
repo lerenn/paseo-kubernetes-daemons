@@ -9,7 +9,7 @@ jobs:
         with: {go-version-file: go.mod, cache: true}
       - run: go test ./...
       - run: go vet ./...
-      - run: python3 -m unittest discover -s images/workspace/tests -v
+      - run: python3 -m unittest discover -s images/daemon/tests -v
       - name: Test CRD admission and reconciliation against Kubernetes API
         run: |
           assets=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3 use 1.35.x -p path)
@@ -22,19 +22,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t paseo-workspace:test images/workspace
-      - run: docker run --rm -i --network none --entrypoint python3 paseo-workspace:test - < images/workspace/tests/smoke.py
+      - run: docker build -t paseo-daemon:test images/daemon
+      - run: docker run --rm -i --network none --entrypoint python3 paseo-daemon:test - < images/daemon/tests/smoke.py
   chart:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Chart CRD matches config/crd.yaml
-        run: diff config/crd.yaml charts/paseo-workspaces/crds/paseoworkspaces.yaml
+        run: diff config/crd.yaml charts/paseo-daemons/crds/paseodaemons.yaml
       - name: Lint and render the chart
         run: |
           for args in "" "--set gateway.enabled=true --set gateway.tls.secretName=x --set quota.enabled=true --set networkPolicy.enabled=true --set workspacePullSecret=x"; do
-            docker run --rm -v "$PWD/charts:/c" alpine/helm:3 lint /c/paseo-workspaces $args
-            docker run --rm -v "$PWD/charts:/c" alpine/helm:3 template pw /c/paseo-workspaces -n paseo-workspaces $args > /dev/null
+            docker run --rm -v "$PWD/charts:/c" alpine/helm:3 lint /c/paseo-daemons $args
+            docker run --rm -v "$PWD/charts:/c" alpine/helm:3 template pw /c/paseo-daemons -n paseo-daemons $args > /dev/null
           done
   version:
     runs-on: ubuntu-latest

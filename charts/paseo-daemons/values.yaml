@@ -1,11 +1,11 @@
 image:
-  repository: ghcr.io/lerenn/paseo-workspaces-operator
+  repository: ghcr.io/lerenn/paseo-daemons-operator
   # Defaults to the chart appVersion.
   tag: ""
   pullPolicy: IfNotPresent
 # Pull Secrets for the operator pod.
 imagePullSecrets: []
-# Workspace image for gateway profiles that set none. Defaults to paseo-workspace:<appVersion>.
+# Workspace image for gateway profiles that set none. Defaults to paseo-daemon:<appVersion>.
 workspaceImage: ""
 # Pull Secret used by the workspace pods the operator creates.
 workspacePullSecret: ""
@@ -29,7 +29,7 @@ gateway:
   port: 8787
   # Extra DNS names the gateway accepts in addition to its Service names.
   hostnames: []
-  # TLS-terminating nginx sidecar + Service "paseo-workspaces-gateway-tls" (443). Set secretName to a
+  # TLS-terminating nginx sidecar + Service "paseo-daemons-gateway-tls" (443). Set secretName to a
   # kubernetes.io/tls Secret in the release namespace to enable; empty keeps the plain gateway only.
   tls:
     secretName: ""
@@ -55,7 +55,7 @@ quota:
     requests.storage: 80Gi
     persistentvolumeclaims: "8"
 
-# Optional: only labeled main-daemon pods (workspaces.paseo.sh/access=main) reach workspace daemons.
+# Optional: only labeled main-daemon pods (daemons.paseo.sh/access=main) reach workspace daemons.
 networkPolicy:
   enabled: false
 

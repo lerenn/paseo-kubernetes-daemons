@@ -20,7 +20,7 @@ type Target struct {
 
 func (p *Provisioner) Targets(ctx context.Context) ([]Target, error) {
 	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoWorkspaceList"))
+	list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoDaemonList"))
 	if err := p.Client.List(ctx, list, client.InNamespace(p.Namespace)); err != nil {
 		return nil, err
 	}

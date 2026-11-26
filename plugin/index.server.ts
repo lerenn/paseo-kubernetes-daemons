@@ -52,14 +52,18 @@ import {
 import { podsStatus as buildPodsStatus, podsCheck as buildPodsCheck } from "./server/pods.js";
 import type { SnapshotEntryLike } from "./server/daemon-providers.js";
 import { discoverProject } from "./server/credentials.js";
+import { carryOverLegacySettings } from "./server/legacy-settings.js";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(workspaceSettings);
+  // One-time, best-effort carry-over of the settings saved under the pre-0.5 plugin id.
+  const legacy = carryOverLegacySettings().catch(() => "none" as const);
   async function configuration() {
+    await legacy;
     const state = await settings.read();
     if (state.status !== "ready")
       throw new Error(
-        "Workspace settings are invalid. Open Kubernetes Workspaces to fix them.",
+        "Workspace settings are invalid. Open Kubernetes Daemons to fix them.",
       );
     return settingsSchema.parse({
       ...defaults(),

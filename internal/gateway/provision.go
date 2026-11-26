@@ -19,8 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const requestAnnotation = "workspaces.paseo.sh/gateway-request"
-const optionsAnnotation = "workspaces.paseo.sh/gateway-options"
+const requestAnnotation = "daemons.paseo.sh/gateway-request"
+const optionsAnnotation = "daemons.paseo.sh/gateway-options"
 
 // Provisioner creates one environment per idempotency key. The profile name
 // must come from trusted gateway configuration, never from an untrusted client.

@@ -4,7 +4,7 @@ apiVersion: v1
 kind: ResourceQuota
 metadata:
   name: workspace-capacity
-  namespace: paseo-workspaces
+  namespace: paseo-daemons
 spec:
   hard:
     pods: '8'

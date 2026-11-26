@@ -14,7 +14,7 @@ tag; the bot opens a "Review" PR and a reviewer merges it.
 `plugins/lerenn/` (only excalidraw, mail, playbooks). So the first run is a *new
 submission*, not an update, and no registry id is known yet: do not invent one. The id is
 assigned by the bot (by convention `lerenn/<name>`, e.g. `lerenn/mail`); the manifest id is
-`kubernetes-workspaces` and the display name `Kubernetes Workspaces`. Re-check in step 2: if a
+`kubernetes-daemons` and the display name `Kubernetes Daemons`. Re-check in step 2: if a
 record now exists, use its path (`plugins/lerenn/<name>.json`) and follow the update flow.
 
 Opening an issue is public and outward-facing: show the user the final body and get a yes
@@ -25,7 +25,7 @@ before step 5 (unless they already said to go ahead).
 - Repo: `lerenn/paseo-kubernetes-daemons`. The Paseo plugin lives in the **`plugin/`
   subfolder** (manifest `plugin/paseo-plugin.json`, icon `plugin/assets/icon.png`); the repo
   also contains the Go operator, the Helm chart and the workspace image.
-- Version: `plugin/package.json` `version` and `charts/paseo-workspaces/Chart.yaml`
+- Version: `plugin/package.json` `version` and `charts/paseo-daemons/Chart.yaml`
   (`version` and `appVersion`) are bumped together in a "Release X.Y.Z" PR.
 - Release: pushing a `vX.Y.Z` tag runs the **Release** workflow
   (`.github/workflows/release.yaml`), which publishes the operator image, the workspace image
@@ -60,7 +60,7 @@ tag, say so and stop. For a monorepo record, `artifact.pluginPath` should be `pl
 
 ```bash
 gh issue list --repo getpaseo/plugins --author lerenn --state open
-gh pr list --repo getpaseo/plugins --state open --search "Kubernetes Workspaces"
+gh pr list --repo getpaseo/plugins --state open --search "Kubernetes Daemons"
 ```
 
 Any open, unmerged submission for this plugin is superseded by the new one: list it in the new
@@ -96,7 +96,7 @@ https://github.com/lerenn/paseo-kubernetes-daemons/tree/<latest-tag>/plugin
 - [ ] Extras
 - [x] Utils
 
-<First submission of Kubernetes Workspaces, release <latest-tag>, commit `<latest-commit>`.
+<First submission of Kubernetes Daemons, release <latest-tag>, commit `<latest-commit>`.
 OR: Update of the existing `<registry-id>` listing (currently <listed-tag>, `<listed-commit>`)
 to release <latest-tag>, commit `<latest-commit>`.>
 The requirement is Paseo `<requirements.paseo>`.
@@ -120,7 +120,7 @@ The permissions note must match the artifact: the reviewer checks it.
 ## 5. Open the issue
 
 ```bash
-gh issue create --repo getpaseo/plugins --label submission --title "Kubernetes Workspaces" --body-file <file>
+gh issue create --repo getpaseo/plugins --label submission --title "Kubernetes Daemons" --body-file <file>
 ```
 
 The title is the plugin's name (`name` in the manifest). Do not add a Git ref other than the
@@ -138,6 +138,6 @@ gh pr close <pr> --repo getpaseo/plugins --comment "Superseded by #<new>."
 ## 7. Report and follow up
 
 Give the user the issue link. Within about 30 minutes the bot opens the review PR
-(`gh pr list --repo getpaseo/plugins --search "Kubernetes Workspaces"`); the reviewer then tags
+(`gh pr list --repo getpaseo/plugins --search "Kubernetes Daemons"`); the reviewer then tags
 the author in the outcome. If a PR exists but nothing happens for a day, say so rather than
 re-submitting. Do not open a second issue for the same tag.

@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/util/retry"
 )
 
-const creationPodAnnotation = "workspaces.paseo.sh/creation-pod-uid"
+const creationPodAnnotation = "daemons.paseo.sh/creation-pod-uid"
 
 type WorkspaceBackend interface {
 	SendText([]byte) error

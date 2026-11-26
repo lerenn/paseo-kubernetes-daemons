@@ -40,7 +40,7 @@ test("provider set: three immutable objects, kind label, blanked refresh token, 
     const set = await syncProviders(c, selection, "srv", run, f, undefined, {});
     assert.equal(writes.length, 3);
     assert.ok(writes.every((o) => o.immutable === true));
-    assert.ok(writes.every((o) => o.metadata.labels["workspaces.paseo.sh/kind"] === "providers" && o.metadata.labels["workspaces.paseo.sh/profile-owner"] === set.owner));
+    assert.ok(writes.every((o) => o.metadata.labels["daemons.paseo.sh/kind"] === "providers" && o.metadata.labels["daemons.paseo.sh/profile-owner"] === set.owner));
     assert.deepEqual(writes.map((o) => o.metadata.name), [set.name, set.name + "-env", set.name]);
     assert.match(set.name, /^pw-providers-[0-9a-f]{16}-[0-9a-f]{20}$/);
     assert.ok(set.name.length + 4 <= 63);
@@ -99,8 +99,8 @@ test("project profile: project labels, thin config, subset validated against the
     assert.equal(writes.length, 3);
     assert.match(r.name, /^pw-profile-[0-9a-f]{16}-[0-9a-f]{20}$/);
     const labels = writes[0].metadata.labels;
-    assert.equal(labels["workspaces.paseo.sh/kind"], "project");
-    assert.equal(labels["workspaces.paseo.sh/project"], r.id);
+    assert.equal(labels["daemons.paseo.sh/kind"], "project");
+    assert.equal(labels["daemons.paseo.sh/project"], r.id);
     const b = JSON.parse(writes[2].data["bootstrap.json"]);
     assert.deepEqual(b, { repository: { url: repo, revision: "main" }, trustRepository: true, projectMcps: [], providers: ["codex-login"] });
     const files = JSON.parse(Buffer.from(writes[0].data["files.json"], "base64").toString());
@@ -123,7 +123,7 @@ const deps = (f: any, writes: any[], existing = "") => ({
   options: f,
   run: (async (args, input) => {
     if (input) writes.push(input);
-    if (args[0] === "get" && args[2] === "paseo-workspaces-gateway" && args.includes("jsonpath={.data.projects\\.json}")) return existing;
+    if (args[0] === "get" && args[2] === "paseo-daemons-gateway" && args.includes("jsonpath={.data.projects\\.json}")) return existing;
     return "";
   }) as Kubectl,
   providerContext: async () => ({ snapshot: { entries: [] } as never, controls: {} }),
@@ -137,8 +137,8 @@ test("migration splits the legacy profile into set + project and writes the cata
     assert.equal(r.error, undefined);
     assert.equal(writes.length, 7);
     const last = writes[6];
-    assert.equal(last.metadata.name, "paseo-workspaces-gateway");
-    for (const w of writes.slice(0, 6)) assert.notEqual(w.metadata.name, "paseo-workspaces-gateway");
+    assert.equal(last.metadata.name, "paseo-daemons-gateway");
+    for (const w of writes.slice(0, 6)) assert.notEqual(w.metadata.name, "paseo-daemons-gateway");
     const [entry] = JSON.parse(last.data["projects.json"]);
     // The names the client must save into settings (the server cannot write them).
     assert.equal(r.split?.lastSync.version, entry.providers);

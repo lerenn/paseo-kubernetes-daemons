@@ -8,7 +8,7 @@ import { projectId } from "./credentials.js";
 import { pluginEntries, type PluginEntry } from "../shared/plugins.js";
 import { catalogPods, mergePods, validatePods, type CatalogPods } from "../shared/pods.js";
 
-export const CATALOG_NAME = "paseo-workspaces-gateway";
+export const CATALOG_NAME = "paseo-daemons-gateway";
 export const CATALOG_LIMIT = 100;
 
 // Read by internal/gateway/configuration.go (ProfileConfiguration).
@@ -125,7 +125,7 @@ export async function writeCatalog(
       metadata: {
         name: CATALOG_NAME,
         namespace,
-        labels: { "workspaces.paseo.sh/profile-owner": owner },
+        labels: { "daemons.paseo.sh/profile-owner": owner },
       },
       data: { "projects.json": catalogJson(entries) },
     },

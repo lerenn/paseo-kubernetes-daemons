@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-spec = importlib.util.spec_from_file_location('bootstrap', '/usr/local/lib/paseo-workspace/bootstrap.py')
+spec = importlib.util.spec_from_file_location('bootstrap', '/usr/local/lib/paseo-daemon/bootstrap.py')
 bootstrap = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bootstrap)
 with tempfile.TemporaryDirectory() as directory:

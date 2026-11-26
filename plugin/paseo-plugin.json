@@ -1,6 +1,6 @@
 {
-  "id": "kubernetes-workspaces",
-  "name": "Kubernetes Workspaces",
+  "id": "kubernetes-daemons",
+  "name": "Kubernetes Daemons",
   "description": "Provision isolated workspace daemons through the Paseo Kubernetes operator",
   "requirements": {
     "paseo": ">=0.16.2"

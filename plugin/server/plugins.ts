@@ -135,7 +135,7 @@ async function writeSecret(run: Kubectl, owner: string, namespace: string, name:
       metadata: {
         name,
         namespace,
-        labels: { [OWNER_LABEL]: owner, "workspaces.paseo.sh/kind": "plugin" },
+        labels: { [OWNER_LABEL]: owner, "daemons.paseo.sh/kind": "plugin" },
       },
       type: "Opaque",
       immutable: true,

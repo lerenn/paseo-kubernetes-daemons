@@ -16,12 +16,12 @@ export interface Environment {
 }
 export function defaults(): Configuration {
   return settingsSchema.parse({
-    namespace: process.env.PASEO_WORKSPACE_NAMESPACE ?? "paseo-workspaces",
-    clusterId: process.env.PASEO_WORKSPACE_CLUSTER_ID ?? "default",
-    image: process.env.PASEO_WORKSPACE_IMAGE ?? "",
+    namespace: process.env.PASEO_DAEMON_NAMESPACE ?? "paseo-daemons",
+    clusterId: process.env.PASEO_DAEMON_CLUSTER_ID ?? "default",
+    image: process.env.PASEO_DAEMON_IMAGE ?? "",
     mainConnection: process.env.PASEO_MAIN_CONNECTION ?? "",
-    gatewayEndpoint: process.env.PASEO_WORKSPACES_GATEWAY_ENDPOINT ?? "",
-    gatewayHostName: process.env.PASEO_WORKSPACES_GATEWAY_HOST_NAME ?? "",
+    gatewayEndpoint: process.env.PASEO_DAEMONS_GATEWAY_ENDPOINT ?? "",
+    gatewayHostName: process.env.PASEO_DAEMONS_GATEWAY_HOST_NAME ?? "",
   });
 }
 export async function create(name: string, c: Configuration = defaults()) {
@@ -33,7 +33,7 @@ export async function create(name: string, c: Configuration = defaults()) {
       "Sync credentials for this Kubernetes connection before creating an environment.",
     );
   if (!image)
-    throw new Error("Set a workspace image in Kubernetes Workspaces settings.");
+    throw new Error("Set a workspace image in Kubernetes Daemons settings.");
   const plugins = pluginEntries(c.plugins);
   // Server-side apply is idempotent. The CR spec is immutable after creation.
   return JSON.parse(
@@ -48,8 +48,8 @@ export async function create(name: string, c: Configuration = defaults()) {
         "json",
       ],
       {
-        apiVersion: "workspaces.paseo.sh/v1alpha1",
-        kind: "PaseoWorkspace",
+        apiVersion: "daemons.paseo.sh/v1alpha1",
+        kind: "PaseoDaemon",
         metadata: { name },
         spec: {
           image,
@@ -85,15 +85,15 @@ export async function create(name: string, c: Configuration = defaults()) {
             },
             limits: { cpu: "2", memory: "4Gi", "ephemeral-storage": "4Gi" },
           },
-          ...(process.env.PASEO_WORKSPACE_SECRET
-            ? { secretName: process.env.PASEO_WORKSPACE_SECRET }
+          ...(process.env.PASEO_DAEMON_SECRET
+            ? { secretName: process.env.PASEO_DAEMON_SECRET }
             : {}),
         },
       },
     ),
   );
 }
-const manager = "paseo-kubernetes-workspaces";
+const manager = "paseo-kubernetes-daemons";
 export async function syncHosts(
   paseo: PaseoApi,
   environments: Environment[],
@@ -156,8 +156,8 @@ export async function syncHosts(
   }
   return results;
 }
-const gatewayService = "paseo-workspaces-gateway";
-const gatewaySecret = "paseo-workspaces-gateway-auth";
+const gatewayService = "paseo-daemons-gateway";
+const gatewaySecret = "paseo-daemons-gateway-auth";
 const gatewayPort = 8787;
 // A public endpoint (host or host:port, TLS) lets clients outside the cluster connect;
 // otherwise use the in-cluster Service, which only the daemon itself can resolve.
@@ -299,7 +299,7 @@ async function reconcile(paseo: PaseoApi, c: Configuration) {
   const result = JSON.parse(
     await connection(c)([
       "get",
-      "paseoworkspaces.workspaces.paseo.sh",
+      "paseodaemons.daemons.paseo.sh",
       "-o",
       "json",
     ]),
@@ -313,7 +313,7 @@ export async function release(name: string, c: Configuration = defaults()) {
   nameSchema.parse(name);
   await connection(c)([
     "delete",
-    "paseoworkspaces.workspaces.paseo.sh",
+    "paseodaemons.daemons.paseo.sh",
     name,
     "--ignore-not-found",
     "--wait=false",

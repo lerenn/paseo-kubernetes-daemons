@@ -8,7 +8,7 @@ function Sidebar(props: PluginSidebarItemProps) {
   return (
     <SidebarRow
       icon="Boxes"
-      label="Kubernetes Workspaces"
+      label="Kubernetes Daemons"
       active={props.currentScreen?.screenId === "workspaces"}
       onPress={() => props.openScreen({ screenId: "workspaces" })}
     />
@@ -17,12 +17,12 @@ function Sidebar(props: PluginSidebarItemProps) {
 export default function contribute(client: PluginClientContext) {
   const screen = client.addScreen({
     id: "workspaces",
-    title: "Kubernetes Workspaces",
+    title: "Kubernetes Daemons",
     Component: WorkspaceScreen,
   });
   const sidebar = client.addSidebarHeaderItem({
     id: "workspaces",
-    title: "Kubernetes Workspaces",
+    title: "Kubernetes Daemons",
     Component: Sidebar,
   });
   return () => {
