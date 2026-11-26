@@ -104,6 +104,13 @@ Service `paseo-workspaces-gateway.<namespace>.svc:8787` and the password in the 
 `paseo-workspaces-gateway-auth` Secret. This needs the main daemon to reach that Service
 and to hold the plugin Role (get on that Secret). The host is removed when the Secret is gone.
 
+By default the label uses the daemon's own name (its hostname; plugins cannot read the display
+name set in the app, which is stored client-side). Set **Host name** in the Cluster tab to
+use `<Host name> · Kubernetes` instead; changing it updates the existing host in place.
+
+The app does not refresh its host list when a plugin adds, updates or removes a host, so after
+re-enabling the plugin or changing the host name, reload the app to see the change.
+
 Apps outside the cluster (a laptop, for example) cannot resolve that `.svc` name, so the host
 shows as unreachable there. Expose the Service through an Ingress with TLS, add its hostname to
 the chart's `gateway.hostnames`, and set **Public gateway endpoint** (`host[:port]`, default port
