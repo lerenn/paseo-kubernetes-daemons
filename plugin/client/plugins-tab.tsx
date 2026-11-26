@@ -60,7 +60,7 @@ function Row(props: {
           </Text>
           <Text style={text}>{plugin.ref ? `Pinned to ${plugin.ref}` : "Not pinned"}</Text>
         </View>
-        <Badge theme={theme} label={plugin.enabled ? LABEL[state] : "Disabled"} tone={plugin.enabled ? TONE[state] : "muted"} />
+        <Badge theme={theme} label={plugin.enabled ? LABEL[state] : "Disabled"} tone={plugin.enabled ? TONE[state] : "muted"} alignSelf="center" />
       </View>
       <Choice
         theme={theme}

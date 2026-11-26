@@ -91,9 +91,9 @@ export function ProvidersTab(props: {
               disabled={busy || (!opts.found && !opts.selected)}
             />
           </View>
-          <Badge theme={theme} label={opts.found ? "Found" : "Not found"} tone={opts.found ? "success" : "muted"} />
-          {opts.selected && <Badge theme={theme} label="Selected" tone="success" />}
-          {badge && <Badge theme={theme} label={badge.label} tone={badge.tone} />}
+          <Badge theme={theme} label={opts.found ? "Found" : "Not found"} tone={opts.found ? "success" : "muted"} alignSelf="center" />
+          {opts.selected && <Badge theme={theme} label="Selected" tone="success" alignSelf="center" />}
+          {badge && <Badge theme={theme} label={badge.label} tone={badge.tone} alignSelf="center" />}
         </View>
         {opts.extra}
       </View>
@@ -161,14 +161,15 @@ export function ProvidersTab(props: {
                       disabled={busy || !p.supported || (!p.found && !p.selected)}
                     />
                   </View>
-                  {p.kind === "profile" && <Badge theme={theme} label="Profile" tone="muted" />}
+                  {p.kind === "profile" && <Badge theme={theme} label="Profile" tone="muted" alignSelf="center" />}
                   <Badge
                     theme={theme}
                     label={!p.supported ? "Unsupported" : p.found ? "Found" : "Missing"}
                     tone={p.found && p.supported ? "success" : "muted"}
+                    alignSelf="center"
                   />
-                  {missingUrl && <Badge theme={theme} label="Needs URL" tone="warning" />}
-                  {badge && <Badge theme={theme} label={badge.label} tone={badge.tone} />}
+                  {missingUrl && <Badge theme={theme} label="Needs URL" tone="warning" alignSelf="center" />}
+                  {badge && <Badge theme={theme} label={badge.label} tone={badge.tone} alignSelf="center" />}
                 </View>
                 {p.id === "codex-login" && p.selected && (
                   <View style={{ paddingLeft: 30, gap: 4 }}>

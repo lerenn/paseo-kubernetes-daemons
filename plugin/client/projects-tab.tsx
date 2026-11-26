@@ -323,7 +323,7 @@ export function ProjectsTab(props: {
                   <Text selectable style={text}>{r.repository ? `${r.host ?? ""} · ${r.repository}` : (r.reason ?? "")}</Text>
                   <Text selectable style={text}>{r.path}</Text>
                 </View>
-                <Badge theme={theme} label={badge.label} tone={badge.tone} />
+                <Badge theme={theme} label={badge.label} tone={badge.tone} alignSelf="center" />
                 {act && (
                   <Button
                     theme={theme}
@@ -424,8 +424,8 @@ export function ProjectsTab(props: {
                   {row.synced ? ` · synced ${new Date(row.synced.at).toLocaleString()}` : ""}
                 </Text>
               </View>
-              <Badge theme={theme} label={badge.label} tone={badge.tone} />
-              {row.trusted && <Badge theme={theme} label="Approved" tone="success" />}
+              <Badge theme={theme} label={badge.label} tone={badge.tone} alignSelf="center" />
+              {row.trusted && <Badge theme={theme} label="Approved" tone="success" alignSelf="center" />}
             </View>
             {row.error && <Text style={{ ...(text as object), color: theme.colors.statusDanger }}>{row.error}</Text>}
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
