@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lerenn/paseo-kubernetes-workspaces/internal/controller"
+	"github.com/lerenn/paseo-kubernetes-daemons/internal/controller"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 )

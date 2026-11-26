@@ -1,4 +1,4 @@
-module github.com/lerenn/paseo-kubernetes-workspaces
+module github.com/lerenn/paseo-kubernetes-daemons
 
 go 1.26.10
 
