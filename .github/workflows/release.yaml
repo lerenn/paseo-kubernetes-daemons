@@ -42,20 +42,20 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/paseo-workspaces-operator:${{ steps.v.outputs.version }}
+          tags: ghcr.io/${{ github.repository_owner }}/paseo-daemons-operator:${{ steps.v.outputs.version }}
       - uses: docker/build-push-action@v6
         if: steps.v.outputs.new == 'true'
         with:
-          context: images/workspace
+          context: images/daemon
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/paseo-workspace:${{ steps.v.outputs.version }}
+          tags: ghcr.io/${{ github.repository_owner }}/paseo-daemon:${{ steps.v.outputs.version }}
       - name: Package and push the chart
         if: steps.v.outputs.new == 'true'
         run: |
           v='${{ steps.v.outputs.version }}'
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u '${{ github.actor }}' --password-stdin
-          helm package charts/paseo-workspaces --version "$v" --app-version "$v" -d out
-          helm push "out/paseo-workspaces-$v.tgz" "oci://ghcr.io/${OWNER}/charts"
+          helm package charts/paseo-daemons --version "$v" --app-version "$v" -d out
+          helm push "out/paseo-daemons-$v.tgz" "oci://ghcr.io/${OWNER}/charts"
       - name: Create the vX.Y.Z tag and GitHub release
         if: steps.v.outputs.new == 'true'
         env:

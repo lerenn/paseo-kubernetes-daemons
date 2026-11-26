@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	ownerLabel = "workspaces.paseo.sh/profile-owner"
-	kindLabel  = "workspaces.paseo.sh/kind"
+	ownerLabel = "daemons.paseo.sh/profile-owner"
+	kindLabel  = "daemons.paseo.sh/kind"
 )
 
 const (

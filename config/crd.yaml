@@ -1,14 +1,14 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: paseoworkspaces.workspaces.paseo.sh
+  name: paseodaemons.daemons.paseo.sh
 spec:
-  group: workspaces.paseo.sh
+  group: daemons.paseo.sh
   scope: Namespaced
   names:
-    plural: paseoworkspaces
-    singular: paseoworkspace
-    kind: PaseoWorkspace
+    plural: paseodaemons
+    singular: paseodaemon
+    kind: PaseoDaemon
     shortNames: [pw]
   versions:
     - name: v1alpha1

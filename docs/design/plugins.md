@@ -10,7 +10,7 @@ copied implicitly.
 
 `paseo plugin install` connects to a running daemon. The bootstrap init container runs before the
 daemon exists, so installation happens in the daemon container through the wrapper
-`images/workspace/install-plugins.py` (see docs/architecture.md, "Plugins").
+`images/daemon/install-plugins.py` (see docs/architecture.md, "Plugins").
 
 ## Settings (plugin side)
 

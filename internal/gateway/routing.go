@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const routesAnnotation = "workspaces.paseo.sh/gateway-routes"
+const routesAnnotation = "daemons.paseo.sh/gateway-routes"
 
 // Routes are observed from a workspace daemon, not accepted from a frontend.
 // They are persisted on its workspace resource to survive gateway restarts.
@@ -105,7 +105,7 @@ func (p *Provisioner) Resolve(ctx context.Context, kind, id string) (string, err
 		return "", errors.New("invalid route lookup")
 	}
 	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoWorkspaceList"))
+	list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoDaemonList"))
 	if err := p.Client.List(ctx, list, client.InNamespace(p.Namespace)); err != nil {
 		return "", fmt.Errorf("list workspace routes: %w", err)
 	}

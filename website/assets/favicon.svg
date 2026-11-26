@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <title>Paseo Kubernetes Workspaces</title>
+  <title>Paseo Kubernetes Daemons</title>
   <rect width="512" height="512" fill="#2F68EE"/>
   <g fill="none" stroke="#FFF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
     <path d="M256 180 346 232 346 336 256 388 166 336 166 232Z"/>

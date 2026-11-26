@@ -3,18 +3,18 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: workspace-daemon-ingress
-  namespace: paseo-workspaces
+  namespace: paseo-daemons
 spec:
   podSelector:
     matchExpressions:
-      - key: workspaces.paseo.sh/uid
+      - key: daemons.paseo.sh/uid
         operator: Exists
   policyTypes: [Ingress]
   ingress:
     - from:
         - podSelector:
             matchLabels:
-              workspaces.paseo.sh/access: main
+              daemons.paseo.sh/access: main
       ports:
         - protocol: TCP
           port: 6767

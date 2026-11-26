@@ -1,25 +1,25 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: paseo-workspaces
+  name: paseo-daemons
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: paseo-workspaces-operator
-  namespace: paseo-workspaces
+  name: paseo-daemons-operator
+  namespace: paseo-daemons
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: paseo-workspaces-operator
-  namespace: paseo-workspaces
+  name: paseo-daemons-operator
+  namespace: paseo-daemons
 rules:
-  - apiGroups: [workspaces.paseo.sh]
-    resources: [paseoworkspaces]
+  - apiGroups: [daemons.paseo.sh]
+    resources: [paseodaemons]
     verbs: [get, list, watch]
-  - apiGroups: [workspaces.paseo.sh]
-    resources: [paseoworkspaces/status]
+  - apiGroups: [daemons.paseo.sh]
+    resources: [paseodaemons/status]
     verbs: [get, patch, update]
   - apiGroups: ['']
     resources: [pods, services, persistentvolumeclaims]
@@ -34,35 +34,35 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: paseo-workspaces-operator
-  namespace: paseo-workspaces
+  name: paseo-daemons-operator
+  namespace: paseo-daemons
 subjects:
   - kind: ServiceAccount
-    name: paseo-workspaces-operator
-    namespace: paseo-workspaces
+    name: paseo-daemons-operator
+    namespace: paseo-daemons
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: paseo-workspaces-operator
+  name: paseo-daemons-operator
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: paseo-workspaces-operator
-  namespace: paseo-workspaces
+  name: paseo-daemons-operator
+  namespace: paseo-daemons
 spec:
   replicas: 1
   selector:
-    matchLabels: {app: paseo-workspaces-operator}
+    matchLabels: {app: paseo-daemons-operator}
   template:
     metadata:
-      labels: {app: paseo-workspaces-operator}
+      labels: {app: paseo-daemons-operator}
     spec:
-      serviceAccountName: paseo-workspaces-operator
+      serviceAccountName: paseo-daemons-operator
       containers:
         - name: operator
-          image: paseo-workspaces-operator:dev
-          args: [--namespace=paseo-workspaces]
+          image: paseo-daemons-operator:dev
+          args: [--namespace=paseo-daemons]
           resources:
             requests: {cpu: 50m, memory: 128Mi}
             limits: {cpu: 500m, memory: 256Mi}

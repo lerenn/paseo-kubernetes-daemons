@@ -32,7 +32,7 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	manager, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{Scheme: scheme, Cache: cache.Options{DefaultNamespaces: map[string]cache.Config{namespace: {}}}, LeaderElection: true, LeaderElectionID: "paseo-workspaces", LeaderElectionNamespace: namespace})
+	manager, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{Scheme: scheme, Cache: cache.Options{DefaultNamespaces: map[string]cache.Config{namespace: {}}}, LeaderElection: true, LeaderElectionID: "paseo-daemons", LeaderElectionNamespace: namespace})
 	if err != nil {
 		ctrl.Log.Error(err, "manager")
 		os.Exit(1)
@@ -53,7 +53,7 @@ func main() {
 			ctrl.Log.Error(e, "gateway Kubernetes client")
 			os.Exit(1)
 		}
-		hosts := []string{"127.0.0.1", "localhost", "paseo-workspaces-gateway", "paseo-workspaces-gateway." + namespace + ".svc", "paseo-workspaces-gateway." + namespace + ".svc.cluster.local"}
+		hosts := []string{"127.0.0.1", "localhost", "paseo-daemons-gateway", "paseo-daemons-gateway." + namespace + ".svc", "paseo-daemons-gateway." + namespace + ".svc.cluster.local"}
 		for _, host := range strings.Split(extraHosts, ",") {
 			if strings.TrimSpace(host) != "" {
 				hosts = append(hosts, strings.TrimSpace(host))

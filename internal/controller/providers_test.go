@@ -47,7 +47,7 @@ func TestLegacyBootstrapUnchangedWithoutProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	init := pod.Spec.InitContainers[0]
-	want := []string{"python3", "/usr/local/lib/paseo-workspace/bootstrap.py", "--profile", "profile"}
+	want := []string{"python3", "/usr/local/lib/paseo-daemon/bootstrap.py", "--profile", "profile"}
 	if !slices.Equal(init.Command, want) || len(init.VolumeMounts) != 3 || len(pod.Spec.Volumes) != 3 {
 		t.Fatalf("legacy path changed: %v %v", init.Command, pod.Spec.Volumes)
 	}
@@ -103,7 +103,7 @@ func TestProvidersSubsetOnly(t *testing.T) {
 	if vols["provider-credentials"].Secret.SecretName != "prov" || vols["provider-config"].ConfigMap.Name != "prov" || *vols["provider-credentials"].Secret.DefaultMode != 0440 {
 		t.Fatal("provider volumes wrong")
 	}
-	want := []string{"python3", "/usr/local/lib/paseo-workspace/bootstrap.py", "--profile", "profile",
+	want := []string{"python3", "/usr/local/lib/paseo-daemon/bootstrap.py", "--profile", "profile",
 		"--providers", "prov", "--providers-secrets", "/var/run/paseo/providers/credentials", "--providers-config", "/var/run/paseo/providers/config",
 		"--provider-files=auth.json", "--provider-mcps=docs,web", "--provider-profiles="}
 	if !slices.Equal(init.Command, want) {

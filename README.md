@@ -15,7 +15,9 @@ plugin; no Paseo core changes.
 
 ## Set up from Paseo
 
-Install the companion, then open **Kubernetes Workspaces** from Paseo's top-left
+> **0.5.0 renamed everything from "workspaces" to "daemons"** (breaking): see [docs/migration-0.5.md](docs/migration-0.5.md).
+
+Install the companion, then open **Kubernetes Daemons** from Paseo's top-left
 sidebar menu. The panel checks for the operator and guides setup.
 
 1. Build/push the operator and bootstrap-enabled workspace images, then apply the
@@ -44,7 +46,7 @@ sidebar menu. The panel checks for the operator and guides setup.
 6. Export results before **Release**; release deletes workspace storage.
 
 The companion uses ephemeral workspace storage by default. Turn it off for a PVC.
-Direct `PaseoWorkspace` CRs retain their PVC default. The workspace image now
+Direct `PaseoDaemon` CRs retain their PVC default. The workspace image now
 includes Codex and the bootstrap helper; rebuild images when upgrading.
 
 **[Full installation, credential sync and bootstrap guide](docs/setup.md)**
@@ -77,7 +79,7 @@ and creation of real Pod, Service and PVC objects. See [the architecture decisio
 The static documentation site lives in `website/`, following the Paseo Mail and
 Playbooks sites. Preview it with `python3 -m http.server 8091 --directory website`.
 The Pages workflow deploys changes on `main`; the custom domain is
-`kubernetes-workspaces.paseo.lerenn.dev` (DNS must point to GitHub Pages).
+`kubernetes-daemons.paseo.lerenn.dev` (DNS must point to GitHub Pages).
 
 ### Optional Docker engine
 
@@ -115,24 +117,24 @@ because it breaks pushes and concurrent pulls in nested Docker.
 ## Helm chart
 
 ```sh
-helm install paseo-workspaces ./charts/paseo-workspaces -n paseo-workspaces --create-namespace \
+helm install paseo-daemons ./charts/paseo-daemons -n paseo-daemons --create-namespace \
   --set image.tag=<operator image tag> --set gateway.enabled=true
 ```
 
-`charts/paseo-workspaces/crds/` is a copy of `config/crd.yaml` (CI checks they match; refresh with `make chart-crd`).
+`charts/paseo-daemons/crds/` is a copy of `config/crd.yaml` (CI checks they match; refresh with `make chart-crd`).
 Helm installs CRDs once but never upgrades them: apply `config/crd.yaml` yourself when upgrading.
 The gateway is off by default; enabling it adds permissions to the operator Role.
 
 ### Releases
 
 Releases are automatic. Bump the version in one PR, in all of: `plugin/package.json`, `plugin/package-lock.json`
-(`npm version X.Y.Z --no-git-tag-version` in `plugin/`), `charts/paseo-workspaces/Chart.yaml` (`version` and `appVersion`)
+(`npm version X.Y.Z --no-git-tag-version` in `plugin/`), `charts/paseo-daemons/Chart.yaml` (`version` and `appVersion`)
 and the tag of `DEFAULT_WORKSPACE_IMAGE` in `plugin/shared/settings.ts`. The `version` CI job checks they agree and that
 the new version is greater than the latest tag. Merging to `main` runs the Release workflow: if `vX.Y.Z` has no tag yet,
 it publishes the images and chart, then creates the tag and the GitHub release (an already tagged version is a no-op;
-re-run a failed release with *Run workflow* on `main`). Never push tags by hand. It publishes `ghcr.io/lerenn/paseo-workspaces-operator:X.Y.Z`, `ghcr.io/lerenn/paseo-workspace:X.Y.Z`
-and the chart `oci://ghcr.io/lerenn/charts/paseo-workspaces` (chart and app version X.Y.Z):
+re-run a failed release with *Run workflow* on `main`). Never push tags by hand. It publishes `ghcr.io/lerenn/paseo-daemons-operator:X.Y.Z`, `ghcr.io/lerenn/paseo-daemon:X.Y.Z`
+and the chart `oci://ghcr.io/lerenn/charts/paseo-daemons` (chart and app version X.Y.Z):
 
 ```sh
-helm install paseo-workspaces oci://ghcr.io/lerenn/charts/paseo-workspaces --version X.Y.Z -n paseo-workspaces --create-namespace
+helm install paseo-daemons oci://ghcr.io/lerenn/charts/paseo-daemons --version X.Y.Z -n paseo-daemons --create-namespace
 ```

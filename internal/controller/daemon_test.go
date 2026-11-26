@@ -394,7 +394,7 @@ func TestPluginsWrapDaemonCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := pod.Spec.Containers[0].Command
-	want := []string{"python3", "/usr/local/lib/paseo-workspace/install-plugins.py", "--plugins", `[{"source":"github:a/b","ref":"v1"},{"source":"github:c/d"}]`, "--", "paseo", "daemon", "run"}
+	want := []string{"python3", "/usr/local/lib/paseo-daemon/install-plugins.py", "--plugins", `[{"source":"github:a/b","ref":"v1"},{"source":"github:c/d"}]`, "--", "paseo", "daemon", "run"}
 	if !slices.Equal(cmd, want) {
 		t.Fatalf("command %v", cmd)
 	}

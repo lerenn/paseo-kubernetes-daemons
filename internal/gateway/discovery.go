@@ -38,7 +38,7 @@ func (p *Provisioner) Discover(ctx context.Context) (Discovery, error) {
 	if err := p.Client.Get(ctx, types.NamespacedName{Name: p.Profile, Namespace: p.Namespace}, &config); err != nil {
 		return Discovery{}, fmt.Errorf("credential profile unavailable: %w", err)
 	}
-	if config.Immutable == nil || !*config.Immutable || config.Labels["workspaces.paseo.sh/profile-owner"] == "" {
+	if config.Immutable == nil || !*config.Immutable || config.Labels["daemons.paseo.sh/profile-owner"] == "" {
 		return Discovery{}, errors.New("profile discovery metadata is not a synced snapshot")
 	}
 	var data struct {

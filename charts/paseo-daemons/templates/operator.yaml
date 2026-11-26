@@ -1,22 +1,22 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: paseo-workspaces-operator
+  name: paseo-daemons-operator
   namespace: {{ .Release.Namespace }}
   labels: {{- include "pw.labels" . | nindent 4 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: paseo-workspaces-operator
+  name: paseo-daemons-operator
   namespace: {{ .Release.Namespace }}
   labels: {{- include "pw.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [workspaces.paseo.sh]
-    resources: [paseoworkspaces]
+  - apiGroups: [daemons.paseo.sh]
+    resources: [paseodaemons]
     verbs: {{ if .Values.gateway.enabled }}[get, list, watch, create, update, delete]{{ else }}[get, list, watch]{{ end }}
-  - apiGroups: [workspaces.paseo.sh]
-    resources: [paseoworkspaces/status]
+  - apiGroups: [daemons.paseo.sh]
+    resources: [paseodaemons/status]
     verbs: [get, patch, update]
   - apiGroups: ['']
     resources: [pods, services, persistentvolumeclaims]
@@ -30,45 +30,45 @@ rules:
 {{- if .Values.gateway.enabled }}
   - apiGroups: ['']
     resources: [configmaps]
-    resourceNames: [paseo-workspaces-gateway]
+    resourceNames: [paseo-daemons-gateway]
     verbs: [get]
   - apiGroups: ['']
     resources: [secrets]
     verbs: [create]
   - apiGroups: ['']
     resources: [secrets]
-    resourceNames: [paseo-workspaces-gateway-auth]
+    resourceNames: [paseo-daemons-gateway-auth]
     verbs: [get]
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: paseo-workspaces-operator
+  name: paseo-daemons-operator
   namespace: {{ .Release.Namespace }}
   labels: {{- include "pw.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: paseo-workspaces-operator
+    name: paseo-daemons-operator
     namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: paseo-workspaces-operator
+  name: paseo-daemons-operator
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: paseo-workspaces-operator
+  name: paseo-daemons-operator
   namespace: {{ .Release.Namespace }}
   labels: {{- include "pw.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
-    matchLabels: {app: paseo-workspaces-operator}
+    matchLabels: {app: paseo-daemons-operator}
   template:
     metadata:
-      labels: {app: paseo-workspaces-operator}
+      labels: {app: paseo-daemons-operator}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
@@ -76,7 +76,7 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
-      serviceAccountName: paseo-workspaces-operator
+      serviceAccountName: paseo-daemons-operator
       containers:
         - name: operator
           image: {{ include "pw.image" . | quote }}
@@ -86,7 +86,7 @@ spec:
             {{- if .Values.workspacePullSecret }}
             - --workspace-pull-secret={{ .Values.workspacePullSecret }}
             {{- end }}
-            - --default-workspace-image={{ .Values.workspaceImage | default (printf "ghcr.io/lerenn/paseo-workspace:%s" .Chart.AppVersion) }}
+            - --default-workspace-image={{ .Values.workspaceImage | default (printf "ghcr.io/lerenn/paseo-daemon:%s" .Chart.AppVersion) }}
             - --docker-image={{ .Values.docker.image }}
             - --docker-mtu={{ .Values.docker.mtu }}
             {{- with .Values.docker.registryMirrors }}
@@ -141,10 +141,10 @@ spec:
             capabilities: {drop: [ALL]}
           volumeMounts:
             - {name: gateway-tls-config, mountPath: /etc/nginx/conf.d, readOnly: true}
-            - {name: gateway-tls, mountPath: /etc/paseo-workspaces-gateway-tls, readOnly: true}
+            - {name: gateway-tls, mountPath: /etc/paseo-daemons-gateway-tls, readOnly: true}
       volumes:
         - name: gateway-tls-config
-          configMap: {name: paseo-workspaces-gateway-tls}
+          configMap: {name: paseo-daemons-gateway-tls}
         - name: gateway-tls
           secret: {secretName: {{ .Values.gateway.tls.secretName | quote }}}
         {{- end }}
@@ -153,12 +153,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: paseo-workspaces-gateway
+  name: paseo-daemons-gateway
   namespace: {{ .Release.Namespace }}
   labels: {{- include "pw.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
-  selector: {app: paseo-workspaces-operator}
+  selector: {app: paseo-daemons-operator}
   ports:
     - {name: gateway, port: {{ .Values.gateway.port }}, targetPort: gateway}
 {{- end }}
@@ -167,7 +167,7 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: paseo-workspaces-gateway-tls
+  name: paseo-daemons-gateway-tls
   namespace: {{ .Release.Namespace }}
   labels: {{- include "pw.labels" . | nindent 4 }}
 data:
@@ -178,8 +178,8 @@ data:
     }
     server {
         listen {{ .Values.gateway.tls.port }} ssl;
-        ssl_certificate /etc/paseo-workspaces-gateway-tls/tls.crt;
-        ssl_certificate_key /etc/paseo-workspaces-gateway-tls/tls.key;
+        ssl_certificate /etc/paseo-daemons-gateway-tls/tls.crt;
+        ssl_certificate_key /etc/paseo-daemons-gateway-tls/tls.key;
         ssl_protocols TLSv1.2 TLSv1.3;
         location / {
             proxy_pass http://127.0.0.1:{{ .Values.gateway.port }};
@@ -197,12 +197,12 @@ data:
 apiVersion: v1
 kind: Service
 metadata:
-  name: paseo-workspaces-gateway-tls
+  name: paseo-daemons-gateway-tls
   namespace: {{ .Release.Namespace }}
   labels: {{- include "pw.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
-  selector: {app: paseo-workspaces-operator}
+  selector: {app: paseo-daemons-operator}
   ports:
     - {name: https, port: 443, targetPort: gateway-tls}
 {{- end }}

@@ -48,14 +48,14 @@ function cluster(workspaces: unknown[] = []) {
     if (input) {
       const o = input as any;
       if (args[0] === "create") return "";
-      if (o.metadata.name === "paseo-workspaces-gateway" && failCatalog) throw new Error("catalog down");
+      if (o.metadata.name === "paseo-daemons-gateway" && failCatalog) throw new Error("catalog down");
       writes.push(o);
       store.set(`${o.kind.toLowerCase()}/${o.metadata.name}`, o);
       return "";
     }
     if (args[0] === "get" && args[1] === "deployment")
       return JSON.stringify({ status: { availableReplicas: 1, observedGeneration: 1 }, metadata: { generation: 1 } });
-    if (args[0] === "get" && args[1].startsWith("paseoworkspaces")) {
+    if (args[0] === "get" && args[1].startsWith("paseodaemons")) {
       return args.includes("name") || args.includes("-o") && args[args.length - 1] === "name"
         ? ""
         : JSON.stringify({ items: workspaces });
@@ -65,12 +65,12 @@ function cluster(workspaces: unknown[] = []) {
       const jp = args[args.length - 1];
       if (jp.includes("providers\\.json")) return o?.data["providers.json"] ?? "";
       if (jp.includes("projects\\.json")) return o?.data["projects.json"] ?? "";
-      if (jp.includes("labels.workspaces\\.paseo\\.sh/project")) return o?.metadata.labels["workspaces.paseo.sh/project"] ?? "";
+      if (jp.includes("labels.workspaces\\.paseo\\.sh/project")) return o?.metadata.labels["daemons.paseo.sh/project"] ?? "";
     }
     return "";
   };
   const catalog = () => {
-    const o = store.get("configmap/paseo-workspaces-gateway");
+    const o = store.get("configmap/paseo-daemons-gateway");
     return o ? (JSON.parse(o.data["projects.json"]) as any[]) : null;
   };
   return { run, writes, store, catalog, failCatalog: () => (failCatalog = true) };
@@ -127,7 +127,7 @@ test("providers.sync: set, thin profiles, catalog last; unapproved projects are 
     assert.equal(a.synced?.providerSet, out.providerSet.name);
     assert.equal(b.skipped, "unapproved");
     assert.equal(b.synced, null);
-    assert.equal(k.writes.at(-1).metadata.name, "paseo-workspaces-gateway");
+    assert.equal(k.writes.at(-1).metadata.name, "paseo-daemons-gateway");
     const cat = k.catalog()!;
     assert.equal(cat.length, 1);
     assert.equal(cat[0].profile, a.synced?.profile);
@@ -312,11 +312,11 @@ test("profiles: secrets go to the provider Secret only; status rows carry none; 
     const out = await syncAllProviders(c, d);
     assert.deepEqual(out.providerSet.providers, ["profile:codex-proxy"]);
     assert.deepEqual(out.skippedProfiles, []);
-    const secret = k.writes.find((o) => o.kind === "Secret" && o.metadata.labels["workspaces.paseo.sh/kind"] === "providers" && !o.metadata.name.endsWith("-env"));
+    const secret = k.writes.find((o) => o.kind === "Secret" && o.metadata.labels["daemons.paseo.sh/kind"] === "providers" && !o.metadata.name.endsWith("-env"));
     const files = JSON.parse(Buffer.from(secret.data["files.json"], "base64").toString());
     assert.equal(files["paseo-providers.json"] && JSON.parse(files["paseo-providers.json"]).profiles["codex-proxy"].provider.env.OPENAI_API_KEY, "PRIVATE_PROFILE_KEY");
     // Not in the env Secret and not in the ConfigMap (the gateway reads that one).
-    const envSecret = k.writes.find((o) => o.kind === "Secret" && o.metadata.name.endsWith("-env") && o.metadata.labels["workspaces.paseo.sh/kind"] === "providers");
+    const envSecret = k.writes.find((o) => o.kind === "Secret" && o.metadata.name.endsWith("-env") && o.metadata.labels["daemons.paseo.sh/kind"] === "providers");
     assert.ok(!JSON.stringify(envSecret).includes(Buffer.from("PRIVATE_PROFILE_KEY").toString("base64")));
     const cm = k.writes.find((o) => o.kind === "ConfigMap" && o.data["providers.json"]);
     assert.ok(!JSON.stringify(cm).includes("PRIVATE_PROFILE_KEY"));

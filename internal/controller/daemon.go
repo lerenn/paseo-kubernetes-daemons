@@ -21,9 +21,9 @@ import (
 	"unicode"
 )
 
-var GVK = schema.GroupVersionKind{Group: "workspaces.paseo.sh", Version: "v1alpha1", Kind: "PaseoWorkspace"}
+var GVK = schema.GroupVersionKind{Group: "daemons.paseo.sh", Version: "v1alpha1", Kind: "PaseoDaemon"}
 
-const GatewayAuthSecret = "paseo-workspaces-gateway-auth"
+const GatewayAuthSecret = "paseo-daemons-gateway-auth"
 
 type Bootstrap struct {
 	SecretName    string `json:"secretName"`
@@ -31,7 +31,7 @@ type Bootstrap struct {
 	EnvSecretName string `json:"envSecretName"`
 	// Providers optionally references a shared, immutable provider set. Nil keeps the legacy single-profile path.
 	Providers *ProviderRefs `json:"providers,omitempty"`
-	// Plugins are installed into the pod daemon after it starts (see images/workspace/install-plugins.py).
+	// Plugins are installed into the pod daemon after it starts (see images/daemon/install-plugins.py).
 	Plugins []PluginRef `json:"plugins,omitempty"`
 }
 
@@ -160,7 +160,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, fmt.Errorf("invalid storage: %w", err)
 	}
 	name := "pw-" + w.GetName()
-	labels := map[string]string{"workspaces.paseo.sh/uid": string(w.GetUID())}
+	labels := map[string]string{"daemons.paseo.sh/uid": string(w.GetUID())}
 	owner := metav1.NewControllerRef(w, GVK)
 	owner.BlockOwnerDeletion = nil
 	meta := func() metav1.ObjectMeta {
@@ -209,7 +209,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		env := corev1.EnvFromSource{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: s.Bootstrap.EnvSecretName}}}
 		pod.Spec.Containers[0].EnvFrom = append(pod.Spec.Containers[0].EnvFrom, env)
 		initMounts := []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}, {Name: "bootstrap-credentials", MountPath: "/var/run/paseo/credentials", ReadOnly: true}, {Name: "bootstrap-config", MountPath: "/var/run/paseo/config", ReadOnly: true}}
-		initCommand := []string{"python3", "/usr/local/lib/paseo-workspace/bootstrap.py", "--profile", s.Bootstrap.SecretName}
+		initCommand := []string{"python3", "/usr/local/lib/paseo-daemon/bootstrap.py", "--profile", s.Bootstrap.SecretName}
 		if p := s.Bootstrap.Providers; p != nil {
 			// Shared providers are mounted in the init container only. Env vars are exposed one key at a
 			// time so keys outside the subset never reach the daemon.
@@ -248,7 +248,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			}
 		}
 		encoded, _ := json.Marshal(entries)
-		daemon.Command = append([]string{"python3", "/usr/local/lib/paseo-workspace/install-plugins.py", "--plugins", string(encoded), "--"}, cmd...)
+		daemon.Command = append([]string{"python3", "/usr/local/lib/paseo-daemon/install-plugins.py", "--plugins", string(encoded), "--"}, cmd...)
 	}
 	if s.Docker != nil && s.Docker.Enabled {
 		// Use a Unix socket only: the stock entrypoint otherwise also opens TCP.

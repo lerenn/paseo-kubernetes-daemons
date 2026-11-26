@@ -23,9 +23,9 @@ func fixture(t *testing.T, complete bool) *Provisioner {
 		t.Fatal(err)
 	}
 	scheme.AddKnownTypeWithName(controller.GVK, &unstructured.Unstructured{})
-	scheme.AddKnownTypeWithName(controller.GVK.GroupVersion().WithKind("PaseoWorkspaceList"), &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(controller.GVK.GroupVersion().WithKind("PaseoDaemonList"), &unstructured.UnstructuredList{})
 	immutable := true
-	meta := metav1.ObjectMeta{Name: "profile", Namespace: "workspaces", Labels: map[string]string{"workspaces.paseo.sh/profile-owner": "owner"}}
+	meta := metav1.ObjectMeta{Name: "profile", Namespace: "workspaces", Labels: map[string]string{"daemons.paseo.sh/profile-owner": "owner"}}
 	objects := []client.Object{&corev1.Secret{ObjectMeta: meta, Immutable: &immutable, Data: map[string][]byte{"files.json": []byte(`{"config.toml":"", "auth.json":"{\"tokens\":{\"access_token\":\"example\"}}"}`)}}}
 	if complete {
 		envmeta := meta.DeepCopy()
@@ -113,7 +113,7 @@ func TestMissingProfileDoesNotCreateWorkspace(t *testing.T) {
 		t.Fatal("missing profile should fail")
 	}
 	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoWorkspaceList"))
+	list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoDaemonList"))
 	if err := p.Client.List(ctx, list, client.InNamespace(p.Namespace)); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestMissingProfileDoesNotCreateWorkspace(t *testing.T) {
 func TestCatalogDefaultsMissingImage(t *testing.T) {
 	entries := []ProfileConfiguration{{Profile: "p"}}
 	data, _ := json.Marshal(entries)
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: CatalogName, Namespace: "ns", Labels: map[string]string{"workspaces.paseo.sh/profile-owner": "x"}}, Data: map[string]string{"projects.json": string(data)}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: CatalogName, Namespace: "ns", Labels: map[string]string{"daemons.paseo.sh/profile-owner": "x"}}, Data: map[string]string{"projects.json": string(data)}}
 	c := fake.NewClientBuilder().WithObjects(cm).Build()
 	if got, err := (Catalog{Client: c, Namespace: "ns"}).Load(context.Background()); err != nil || len(got) != 0 {
 		t.Fatalf("entry without image must be skipped, got %+v err %v", got, err)

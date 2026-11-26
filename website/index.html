@@ -1,19 +1,19 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>A pod for every workspace · Paseo Kubernetes Workspaces</title>
+<title>A pod for every workspace · Paseo Kubernetes Daemons</title>
 <meta name="description" content="Run Paseo workspace daemons in isolated Kubernetes pods, with resource limits, daemon registration and lifecycle management.">
 <meta name="theme-color" content="#101615">
-<link rel="canonical" href="https://kubernetes-workspaces.paseo.lerenn.dev/">
-<meta property="og:title" content="A pod for every workspace · Paseo Kubernetes Workspaces">
+<link rel="canonical" href="https://kubernetes-daemons.paseo.lerenn.dev/">
+<meta property="og:title" content="A pod for every workspace · Paseo Kubernetes Daemons">
 <meta property="og:description" content="Run Paseo workspace daemons in isolated Kubernetes pods, with resource limits, daemon registration and lifecycle management.">
-<meta property="og:type" content="website"><meta property="og:url" content="https://kubernetes-workspaces.paseo.lerenn.dev/">
-<meta property="og:image" content="https://kubernetes-workspaces.paseo.lerenn.dev/assets/logo.png">
+<meta property="og:type" content="website"><meta property="og:url" content="https://kubernetes-daemons.paseo.lerenn.dev/">
+<meta property="og:image" content="https://kubernetes-daemons.paseo.lerenn.dev/assets/logo.png">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="stylesheet" href="style.css">
 </head><body>
 <a class="skip" href="#content">Skip to content</a>
-<header class="site"><div class="inner"><a class="brand" href="index.html"><img src="assets/logo.png" width="24" height="24" alt="">Kubernetes Workspaces</a>
+<header class="site"><div class="inner"><a class="brand" href="index.html"><img src="assets/logo.png" width="24" height="24" alt="">Kubernetes Daemons</a>
 <nav aria-label="Main navigation"><a href="index.html" aria-current="page">Home</a><a href="getting-started.html">Getting started</a><a href="reference.html">Reference</a><a href="how-it-works.html">How it works</a><a href="https://github.com/lerenn/paseo-kubernetes-daemons">GitHub</a></nav></div></header>
 <main id="content">
 <section class="hero"><img class="hero-logo" src="assets/logo.png" width="64" height="64" alt="">
@@ -28,7 +28,7 @@
 <p>Running many agents on one machine makes them compete for CPU, RAM and disk. Workspace pods put explicit limits around each environment, while an optional namespace quota caps aggregate admission.</p>
 <div class="resource-strip" aria-label="Default limits per environment"><span><strong>2</strong> CPUs</span><span><strong>4 GiB</strong> memory</span><span><strong>4 GiB</strong> ephemeral storage</span><span><strong>10 GiB</strong> optional PVC</span></div>
 <h2>Existing daemons, connected together</h2>
-<p>A Go operator reconciles a <code>PaseoWorkspace</code> into a pod, a Service and a persistent volume claim. The companion plugin on your main daemon registers ready environments as connected hosts.</p>
+<p>A Go operator reconciles a <code>PaseoDaemon</code> into a pod, a Service and a persistent volume claim. The companion plugin on your main daemon registers ready environments as connected hosts.</p>
 <ul><li><strong>Agents execute inside the workspace pod.</strong> Their files, scripts and terminals stay with the workspace daemon.</li><li><strong>Communication uses Paseo’s host API.</strong> Discover a remote <code>serverId</code>, create a workspace and start agents there.</li><li><strong>Reverse registration is optional.</strong> Configure a reachable main-daemon connection so pod agents can initiate messages back.</li><li><strong>Storage follows the workspace lifecycle.</strong> Use ephemeral storage by default, or choose a PVC when data and daemon identity must survive pod replacement.</li></ul>
 <h2>Request. Connect. Work. Release.</h2>
 <pre><code>kubernetes_workspace_create({ &quot;name&quot;: &quot;demo&quot; })
@@ -42,5 +42,5 @@ kubernetes_workspace_release({ &quot;name&quot;: &quot;demo&quot; })</code></pre
 <a class="card" href="getting-started.html"><strong>Getting started</strong><span>Build images, deploy the operator and connect your first environment.</span></a>
 <a class="card" href="reference.html"><strong>Reference</strong><span>Agent tools, environment variables and the custom resource.</span></a>
 <a class="card" href="how-it-works.html"><strong>How it works</strong><span>Reconciliation, host registration, persistence and cleanup.</span></a></div></main>
-<footer class="site"><div class="inner">Kubernetes Workspaces for <a href="https://paseo.sh">Paseo</a>. Source on <a href="https://github.com/lerenn/paseo-kubernetes-daemons">GitHub</a>.<br>Also for Paseo: <a href="https://mail.paseo.lerenn.dev">Mail</a> · <a href="https://playbooks.paseo.lerenn.dev">Playbooks</a></div></footer>
+<footer class="site"><div class="inner">Kubernetes Daemons for <a href="https://paseo.sh">Paseo</a>. Source on <a href="https://github.com/lerenn/paseo-kubernetes-daemons">GitHub</a>.<br>Also for Paseo: <a href="https://mail.paseo.lerenn.dev">Mail</a> · <a href="https://playbooks.paseo.lerenn.dev">Playbooks</a></div></footer>
 </body></html>

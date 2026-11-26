@@ -1,6 +1,6 @@
 # Setup and credential reuse
 
-The main daemon runs the companion plugin. Its **Kubernetes Workspaces** entry in
+The main daemon runs the companion plugin. Its **Kubernetes Daemons** entry in
 Paseo's top-left sidebar menu opens the setup and environment screen. It talks to
 the Kubernetes API through `kubectl`; the operator does not expose a public Service.
 
@@ -10,14 +10,14 @@ Build and push both images. Use a fresh tag when upgrading; the workspace image 
 includes pinned Codex CLI and the bootstrap helper, which older images do not have.
 
 ```sh
-docker build -t your-registry/paseo-workspaces-operator:0.2.0 .
-docker build -t your-registry/paseo-workspace:0.2.0 images/workspace
-docker push your-registry/paseo-workspaces-operator:0.2.0
-docker push your-registry/paseo-workspace:0.2.0
+docker build -t your-registry/paseo-daemons-operator:0.2.0 .
+docker build -t your-registry/paseo-daemon:0.2.0 images/daemon
+docker push your-registry/paseo-daemons-operator:0.2.0
+docker push your-registry/paseo-daemon:0.2.0
 ```
 
 Replace the Deployment image in `config/operator.yaml`. Apply the CRD update before
-using bootstrap references. The supplied manifests use `paseo-workspaces`; adapt
+using bootstrap references. The supplied manifests use `paseo-daemons`; adapt
 all namespace fields, RoleBindings and the operator's `--namespace` argument if
 choosing another namespace.
 
@@ -35,8 +35,8 @@ Bind the plugin Role to the main daemon's ServiceAccount (replace the subject
 namespace and name with yours):
 
 ```sh
-kubectl -n paseo-workspaces create rolebinding paseo-main-workspaces \
-  --role=paseo-workspaces-plugin \
+kubectl -n paseo-daemons create rolebinding paseo-main-workspaces \
+  --role=paseo-daemons-plugin \
   --serviceaccount=main-daemon-namespace:main-daemon-serviceaccount
 ```
 
@@ -48,7 +48,7 @@ ServiceAccount:
 
 ```sh
 kubectl create clusterrolebinding paseo-main-workspaces-storageclasses \
-  --clusterrole=paseo-workspaces-plugin-storageclasses \
+  --clusterrole=paseo-daemons-plugin-storageclasses \
   --serviceaccount=main-daemon-namespace:main-daemon-serviceaccount
 ```
 
@@ -69,7 +69,7 @@ npm ci
 npm run typecheck
 paseo plugin install "$PWD"
 # Existing installation:
-# paseo plugin reload kubernetes-workspaces
+# paseo plugin reload kubernetes-daemons
 ```
 
 ### Pod settings
@@ -92,7 +92,7 @@ applies to Docker Hub pulls and must be reachable from the workspace namespace.
 
 ## Connect the cluster
 
-Open **Kubernetes Workspaces**. Save the context, namespace, stable cluster ID and
+Open **Kubernetes Daemons**. Save the context, namespace, stable cluster ID and
 workspace image. **Check connection** verifies the CRD and available operator
 Deployment. When using a kubeconfig, the screen pins the detected context to avoid
 silently exporting credentials to a different cluster after `kubectl` changes its
@@ -100,8 +100,8 @@ current context. In-cluster service-account access does not require a context.
 
 When the operator runs with the gateway enabled (chart value `gateway.enabled=true`), the
 plugin registers the virtual "<Name> · Kubernetes" host by itself, using the in-cluster
-Service `paseo-workspaces-gateway.<namespace>.svc:8787` and the password in the operator's
-`paseo-workspaces-gateway-auth` Secret. This needs the main daemon to reach that Service
+Service `paseo-daemons-gateway.<namespace>.svc:8787` and the password in the operator's
+`paseo-daemons-gateway-auth` Secret. This needs the main daemon to reach that Service
 and to hold the plugin Role (get on that Secret). The host is removed when the Secret is gone.
 
 By default the label uses the daemon's own name (its hostname; plugins cannot read the display
@@ -114,7 +114,7 @@ re-enabling the plugin or changing the host name, reload the app to see the chan
 Apps outside the cluster (a laptop, for example) cannot resolve that `.svc` name, so the host
 shows as unreachable there. Expose the Service through an Ingress with TLS, add its hostname to
 the chart's `gateway.hostnames`, and set **Public gateway endpoint** (`host[:port]`, default port
-443, or `PASEO_WORKSPACES_GATEWAY_ENDPOINT`) in the plugin. The plugin then registers
+443, or `PASEO_DAEMONS_GATEWAY_ENDPOINT`) in the plugin. The plugin then registers
 `tcp://<endpoint>?ssl=true`, still authenticated with the Secret's password.
 
 An optional main-daemon endpoint enables reverse host registration. The main daemon
@@ -275,11 +275,11 @@ Existing environments are not silently retargeted to a new identity or snapshot.
 Troubleshooting:
 
 ```sh
-kubectl -n paseo-workspaces get pw
-kubectl -n paseo-workspaces describe pod pw-demo
-kubectl -n paseo-workspaces logs pw-demo -c bootstrap
-kubectl -n paseo-workspaces logs pw-demo -c daemon
-paseo plugin logs kubernetes-workspaces
+kubectl -n paseo-daemons get pw
+kubectl -n paseo-daemons describe pod pw-demo
+kubectl -n paseo-daemons logs pw-demo -c bootstrap
+kubectl -n paseo-daemons logs pw-demo -c daemon
+paseo plugin logs kubernetes-daemons
 ```
 
 The helper deliberately redacts parser/Git exceptions; investigate source config,

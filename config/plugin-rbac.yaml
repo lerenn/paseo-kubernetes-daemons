@@ -2,11 +2,11 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: paseo-workspaces-plugin
-  namespace: paseo-workspaces
+  name: paseo-daemons-plugin
+  namespace: paseo-daemons
 rules:
-  - apiGroups: [workspaces.paseo.sh]
-    resources: [paseoworkspaces]
+  - apiGroups: [daemons.paseo.sh]
+    resources: [paseodaemons]
     verbs: [get, list, create, patch, delete]
   - apiGroups: ['']
     resources: [secrets, configmaps]
@@ -17,18 +17,18 @@ rules:
     verbs: [get, list]
   - apiGroups: [apps]
     resources: [deployments]
-    resourceNames: [paseo-workspaces-operator]
+    resourceNames: [paseo-daemons-operator]
     verbs: [get]
 ---
 # OPTIONAL. storageclasses are cluster-scoped, so reading them needs a ClusterRole. Without it the
 # Pods tab falls back to a free-text storage class name and shows no volume-expansion warning.
 # Bind it to the same ServiceAccount as the Role above, e.g.:
-#   kubectl create clusterrolebinding paseo-workspaces-plugin-storageclasses \
-#     --clusterrole=paseo-workspaces-plugin-storageclasses --serviceaccount=<ns>:<main-daemon-sa>
+#   kubectl create clusterrolebinding paseo-daemons-plugin-storageclasses \
+#     --clusterrole=paseo-daemons-plugin-storageclasses --serviceaccount=<ns>:<main-daemon-sa>
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: paseo-workspaces-plugin-storageclasses
+  name: paseo-daemons-plugin-storageclasses
 rules:
   - apiGroups: [storage.k8s.io]
     resources: [storageclasses]

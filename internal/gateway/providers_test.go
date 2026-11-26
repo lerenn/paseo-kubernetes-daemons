@@ -34,7 +34,7 @@ func providerScheme(t *testing.T) *runtime.Scheme {
 		t.Fatal(err)
 	}
 	scheme.AddKnownTypeWithName(controller.GVK, &unstructured.Unstructured{})
-	scheme.AddKnownTypeWithName(controller.GVK.GroupVersion().WithKind("PaseoWorkspaceList"), &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(controller.GVK.GroupVersion().WithKind("PaseoDaemonList"), &unstructured.UnstructuredList{})
 	return scheme
 }
 
@@ -203,7 +203,7 @@ func TestSixObjectCoOwnership(t *testing.T) {
 			t.Fatalf("%s accepted", name)
 		}
 		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoWorkspaceList"))
+		list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoDaemonList"))
 		if err := p.Client.List(context.Background(), list); err != nil || len(list.Items) != 0 {
 			t.Fatalf("%s created a workspace", name)
 		}
@@ -224,7 +224,7 @@ func TestCRDSkewGuard(t *testing.T) {
 		t.Fatalf("error %v", err)
 	}
 	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoWorkspaceList"))
+	list.SetGroupVersionKind(controller.GVK.GroupVersion().WithKind("PaseoDaemonList"))
 	if err := p.Client.List(context.Background(), list); err != nil || len(list.Items) != 0 {
 		t.Fatal("the credential-less workspace must be removed")
 	}

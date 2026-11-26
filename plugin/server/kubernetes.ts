@@ -53,8 +53,8 @@ export async function crdCurrent(run: Kubectl) {
     await run(
       ["create", "--dry-run=server", "--validate=strict", "-f", "-", "-o", "name"],
       {
-        apiVersion: "workspaces.paseo.sh/v1alpha1",
-        kind: "PaseoWorkspace",
+        apiVersion: "daemons.paseo.sh/v1alpha1",
+        kind: "PaseoDaemon",
         metadata: { name: "crd-probe" },
         spec: {
           image: "probe",
@@ -94,12 +94,12 @@ export async function inspect(c: Configuration, run = connection(c)) {
         context = "in-cluster / default";
       }
     }
-    await run(["get", "paseoworkspaces.workspaces.paseo.sh", "-o", "name"]);
+    await run(["get", "paseodaemons.daemons.paseo.sh", "-o", "name"]);
     const deployment = JSON.parse(
       await run([
         "get",
         "deployment",
-        "paseo-workspaces-operator",
+        "paseo-daemons-operator",
         "-o",
         "json",
       ]),
@@ -176,7 +176,7 @@ export async function applyOwned(
     [
       "apply",
       "--server-side",
-      "--field-manager=paseo-workspaces-profile",
+      "--field-manager=paseo-daemons-profile",
       "-f",
       "-",
       "-o",

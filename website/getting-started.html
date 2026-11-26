@@ -1,19 +1,19 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Getting started · Paseo Kubernetes Workspaces</title>
+<title>Getting started · Paseo Kubernetes Daemons</title>
 <meta name="description" content="Deploy the operator, install the companion plugin and connect your first isolated Paseo workspace daemon.">
 <meta name="theme-color" content="#101615">
-<link rel="canonical" href="https://kubernetes-workspaces.paseo.lerenn.dev/getting-started.html">
-<meta property="og:title" content="Getting started · Paseo Kubernetes Workspaces">
+<link rel="canonical" href="https://kubernetes-daemons.paseo.lerenn.dev/getting-started.html">
+<meta property="og:title" content="Getting started · Paseo Kubernetes Daemons">
 <meta property="og:description" content="Deploy the operator, install the companion plugin and connect your first isolated Paseo workspace daemon.">
-<meta property="og:type" content="website"><meta property="og:url" content="https://kubernetes-workspaces.paseo.lerenn.dev/getting-started.html">
-<meta property="og:image" content="https://kubernetes-workspaces.paseo.lerenn.dev/assets/logo.png">
+<meta property="og:type" content="website"><meta property="og:url" content="https://kubernetes-daemons.paseo.lerenn.dev/getting-started.html">
+<meta property="og:image" content="https://kubernetes-daemons.paseo.lerenn.dev/assets/logo.png">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="stylesheet" href="style.css">
 </head><body>
 <a class="skip" href="#content">Skip to content</a>
-<header class="site"><div class="inner"><a class="brand" href="index.html"><img src="assets/logo.png" width="24" height="24" alt="">Kubernetes Workspaces</a>
+<header class="site"><div class="inner"><a class="brand" href="index.html"><img src="assets/logo.png" width="24" height="24" alt="">Kubernetes Daemons</a>
 <nav aria-label="Main navigation"><a href="index.html">Home</a><a href="getting-started.html" aria-current="page">Getting started</a><a href="reference.html">Reference</a><a href="how-it-works.html">How it works</a><a href="https://github.com/lerenn/paseo-kubernetes-daemons">GitHub</a></nav></div></header>
 <main id="content">
 <h1>Getting started</h1><p class="lead">Deploy the operator once, then request workspace environments from your main Paseo daemon.</p>
@@ -22,10 +22,10 @@
 <pre><code>git clone https://github.com/lerenn/paseo-kubernetes-daemons.git
 cd paseo-kubernetes-daemons
 
-docker build -t your-registry/paseo-workspaces-operator:0.2.0 .
-docker build -t your-registry/paseo-workspace:0.2.0 images/workspace
-docker push your-registry/paseo-workspaces-operator:0.2.0
-docker push your-registry/paseo-workspace:0.2.0</code></pre>
+docker build -t your-registry/paseo-daemons-operator:0.2.0 .
+docker build -t your-registry/paseo-daemon:0.2.0 images/daemon
+docker push your-registry/paseo-daemons-operator:0.2.0
+docker push your-registry/paseo-daemon:0.2.0</code></pre>
 <p>The workspace image contains Paseo, Codex and the bootstrap helper. Install your agent provider executables in a derived image and inject their credentials through a Kubernetes Secret.</p>
 <h2>Deploy the operator</h2><p>Set the operator image in <code>config/operator.yaml</code> to the image you just pushed, then apply the manifests.</p>
 <pre><code>kubectl apply -f config/crd.yaml
@@ -37,16 +37,16 @@ kubectl apply -f config/quota.yaml</code></pre>
 npm ci
 npm run typecheck
 paseo plugin install "$PWD"</code></pre>
-<h2>Set up from Paseo</h2><ol class="steps"><li>Open <strong>Kubernetes Workspaces</strong> from the top-left sidebar menu.</li><li>Save your Kubernetes context, namespace and bootstrap-enabled workspace image. Check the connection; the panel shows operator installation guidance if needed.</li><li>On the <strong>Providers</strong> tab, click <strong>Find providers</strong> to discover provider credentials and Codex MCP definitions on the main host. Select a Codex subscription login or provider API keys, plus the MCPs to reuse, then <strong>Save selection</strong> and <strong>Sync providers</strong>. Values stay out of the panel and workspace custom resource.</li><li>On the <strong>Projects</strong> tab, add a repository by URL or local checkout, approve it once for new pods and click <strong>Sync project</strong>. The Overview tab tracks cluster, providers and projects, and lists your workspaces below the summary. Optionally tune CPU, memory, storage and Docker sizing on the <strong>Pods</strong> tab; changes apply to new workspaces only.</li><li>Create a workspace from the Workspaces section of the Overview tab. Bootstrap prepares writable Codex credentials, checks out the approved repository and configures project trust before the daemon starts.</li><li>Once online, choose <strong>Open workspace</strong> to work on that daemon.</li></ol>
+<h2>Set up from Paseo</h2><ol class="steps"><li>Open <strong>Kubernetes Daemons</strong> from the top-left sidebar menu.</li><li>Save your Kubernetes context, namespace and bootstrap-enabled workspace image. Check the connection; the panel shows operator installation guidance if needed.</li><li>On the <strong>Providers</strong> tab, click <strong>Find providers</strong> to discover provider credentials and Codex MCP definitions on the main host. Select a Codex subscription login or provider API keys, plus the MCPs to reuse, then <strong>Save selection</strong> and <strong>Sync providers</strong>. Values stay out of the panel and workspace custom resource.</li><li>On the <strong>Projects</strong> tab, add a repository by URL or local checkout, approve it once for new pods and click <strong>Sync project</strong>. The Overview tab tracks cluster, providers and projects, and lists your workspaces below the summary. Optionally tune CPU, memory, storage and Docker sizing on the <strong>Pods</strong> tab; changes apply to new workspaces only.</li><li>Create a workspace from the Workspaces section of the Overview tab. Bootstrap prepares writable Codex credentials, checks out the approved repository and configures project trust before the daemon starts.</li><li>Once online, choose <strong>Open workspace</strong> to work on that daemon.</li></ol>
 <p>Ephemeral storage is enabled by default. Turn it off for a PVC. The new workspace image includes Codex and the bootstrap helper; use a fresh image tag when upgrading from the initial implementation.</p>
 <div class="note">Credential snapshots are not a live authentication broker. Re-sync after main-host credentials change. OS-keychain credentials and coordinated OAuth refresh across pods are not supported. MCP OAuth file-cache export is a separate explicit opt-in.</div>
 <p>See <a href="https://github.com/lerenn/paseo-kubernetes-daemons/blob/main/docs/setup.md">the full bootstrap and credential guide</a> for upgrade steps, RBAC bindings and supported credential sources.</p>
 <div class="note warn"><strong>Release deletes workspace storage.</strong> Export results first. For persistent volumes, physical deletion follows the StorageClass reclaim policy.</div>
 <h2>Check an environment</h2>
-<pre><code>kubectl -n paseo-workspaces get pw
-kubectl -n paseo-workspaces describe pod pw-demo
-kubectl -n paseo-workspaces logs pw-demo</code></pre>
+<pre><code>kubectl -n paseo-daemons get pw
+kubectl -n paseo-daemons describe pod pw-demo
+kubectl -n paseo-daemons logs pw-demo</code></pre>
 <p>A Ready pod is not necessarily a connected host. Check the companion’s <code>hostStatus</code> and <code>error</code> fields for registration problems. Configure daemon authentication and network policy for your cluster; an optional policy is provided in <code>config/network-policy.yaml</code>.</p>
 <p>See the <a href="reference.html">reference</a> for all configuration options.</p></main>
-<footer class="site"><div class="inner">Kubernetes Workspaces for <a href="https://paseo.sh">Paseo</a>. Source on <a href="https://github.com/lerenn/paseo-kubernetes-daemons">GitHub</a>.<br>Also for Paseo: <a href="https://mail.paseo.lerenn.dev">Mail</a> · <a href="https://playbooks.paseo.lerenn.dev">Playbooks</a></div></footer>
+<footer class="site"><div class="inner">Kubernetes Daemons for <a href="https://paseo.sh">Paseo</a>. Source on <a href="https://github.com/lerenn/paseo-kubernetes-daemons">GitHub</a>.<br>Also for Paseo: <a href="https://mail.paseo.lerenn.dev">Mail</a> · <a href="https://playbooks.paseo.lerenn.dev">Playbooks</a></div></footer>
 </body></html>

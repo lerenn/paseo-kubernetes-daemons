@@ -19,9 +19,9 @@ the init container merges them. This needs changes in the CRD, controller, boots
 CRD and plugin.
 
 **Creation is broken today and the first shipped phase fixes it.** The catalog ConfigMap
-`paseo-workspaces-gateway` (`projects.json`, read at `internal/gateway/configuration.go:34-60`) is
+`paseo-daemons-gateway` (`projects.json`, read at `internal/gateway/configuration.go:34-60`) is
 **not written by anything in this repository** (operator RBAC is `get` only,
-`charts/paseo-workspaces/templates/operator.yaml:31-35`; no writer in `plugin/`) and **does not exist on
+`charts/paseo-daemons/templates/operator.yaml:31-35`; no writer in `plugin/`) and **does not exist on
 the cluster** (verified). `Catalog.Load` returns no provisioners and creation fails with "project
 credentials have not been synced" (`session.go:134`); `sync()` even reports `gatewayReady: true`
 (`plugin/server/credentials.ts:379`). **[CHANGED]** The writer is *not* shipped standalone; it is bundled
@@ -35,7 +35,7 @@ merge-ready groundwork that is not released on its own.
 - One saved `bundle` plus global `image`, `docker`, `ephemeral` in plugin settings v1
   (`plugin/shared/settings.ts:22,28-30,33-38`).
 - `sync()` writes `pw-profile-<owner>-<version>` + `-env` Secrets + ConfigMap, all immutable, label
-  `workspaces.paseo.sh/profile-owner=<owner>` (`credentials.ts:319-371`). `owner` hashes server id and
+  `daemons.paseo.sh/profile-owner=<owner>` (`credentials.ts:319-371`). `owner` hashes server id and
   scope; `version` hashes files, env, snapshot and controls. `bootstrap.json` holds repository, trust,
   providers, mcps, providerSnapshot, providerControls.
 - The gateway derives the project from that ConfigMap (`discovery.go:62-81`) and reads the provider
@@ -54,10 +54,10 @@ scope, `credentials.ts:319-322`), created with `applyOwned` (`kubernetes.ts:102-
 
 | Object | Name | Holds | Extra labels |
 |---|---|---|---|
-| **Provider set** Secret | `pw-providers-<owner>-<ver>` | `files.json`: `auth.json` (Codex login), `.credentials.json` (OAuth cache), `config.toml` (stores = file, user-level MCP definitions) | `workspaces.paseo.sh/kind=providers` |
+| **Provider set** Secret | `pw-providers-<owner>-<ver>` | `files.json`: `auth.json` (Codex login), `.credentials.json` (OAuth cache), `config.toml` (stores = file, user-level MCP definitions) | `daemons.paseo.sh/kind=providers` |
 | Provider set env Secret | `pw-providers-<owner>-<ver>-env` | API keys, `GITHUB_TOKEN`, MCP env vars | same |
 | Provider set ConfigMap | `pw-providers-<owner>-<ver>` | `providers.json`: selected ids, MCP names, providerSnapshot, providerControls | same |
-| **Project profile** Secret | `pw-profile-<owner>-<ver>` | `files.json`: project-only `config.toml` fragment (trusted path, project MCPs); always present | `kind=project`, `workspaces.paseo.sh/project=<id>` |
+| **Project profile** Secret | `pw-profile-<owner>-<ver>` | `files.json`: project-only `config.toml` fragment (trusted path, project MCPs); always present | `kind=project`, `daemons.paseo.sh/project=<id>` |
 | Project env Secret | `pw-profile-<owner>-<ver>-env` | project-only vars (usually empty) | same |
 | Project ConfigMap | `pw-profile-<owner>-<ver>` | `bootstrap.json`: repository, revision, trust, `providers` subset (absent = all), `mcps` subset | same |
 
@@ -76,7 +76,7 @@ again by the gateway at create time.
 ### CRD (`config/crd.yaml`, mirrored by `make chart-crd`, `Makefile:7-8`)
 Add optional `spec.bootstrap.providers` next to `secretName/configMapName/envSecretName`
 (`config/crd.yaml` bootstrap block, same patterns and `maxLength: 63`; chart copy
-`crds/paseoworkspaces.yaml:65-80`): `{ secretName, configMapName, envSecretName, envKeys []string,
+`crds/paseodaemons.yaml:65-80`): `{ secretName, configMapName, envSecretName, envKeys []string,
 files []string, mcps []string }`, all three names required when present. `envKeys`/`files`/`mcps` carry
 the subset (gateway-computed). Spec stays immutable (`self == oldSelf`, `:40-43`), so existing workspaces
 are untouched. Also the Docker sidecar fields (section 6): `spec.docker.resources`, `spec.docker.dataSize`.
@@ -93,7 +93,7 @@ are untouched. Also the Docker sidecar fields (section 6): `spec.docker.resource
   the init container copies `Env` (`:151-153`). The project env Secret keeps `envFrom` as today.
 - Legacy path: `Providers == nil` behaves exactly as now.
 
-### Bootstrap (`images/workspace/bootstrap.py`)
+### Bootstrap (`images/daemon/bootstrap.py`)
 - `prepare()` (`:88-140`) gains `providers_dir`/`providers_config_dir`. It loads the provider files
   with the same `ALLOWED_FILES` validation (`:98-102`), filters `auth.json`/`.credentials.json` by the
   subset (`files` list) and `mcp_servers` by `mcps`, then merges `config.toml`: provider TOML first, project
@@ -245,13 +245,13 @@ A dedicated **Pods** tab holds compute, storage and Docker settings for pods cre
 ### What exists today (verified on `origin/main`)
 - The workspace spec already carries `resources`, `storage`, `storageClassName` (`internal/controller/workspace.go:41-43`)
   and the CRD requires cpu, memory and ephemeral-storage in both requests and limits
-  (`config/crd.yaml:92-105`). The spec is immutable (`self == oldSelf`, chart CRD `paseoworkspaces.yaml:40-43`).
+  (`config/crd.yaml:92-105`). The spec is immutable (`self == oldSelf`, chart CRD `paseodaemons.yaml:40-43`).
 - The gateway **hard-codes** them: storage `4Gi` (ephemeral) or `10Gi` (persistent), requests cpu `250m` /
   memory `512Mi` / ephemeral-storage `1Gi`, limits cpu `2` / memory `4Gi` / ephemeral-storage `4Gi`
   (`provision.go:178-187`). `storageClassName` is never set (cluster default class).
 - The Docker sidecar has its own fixed resources (requests 250m/256Mi/1Gi, limits 2/2Gi/12Gi) and a 10Gi
   `docker-data` emptyDir (`workspace.go:156-183`); none of it is configurable from the spec.
-- The chart can create a namespace `ResourceQuota` (`charts/paseo-workspaces/values.yaml:43-53`,
+- The chart can create a namespace `ResourceQuota` (`charts/paseo-daemons/values.yaml:43-53`,
   `templates/optional.yaml:22-31`).
 - Status only reports init/container waiting reasons (`workspace.go:231-257`): an unschedulable pod
   (`Pending`, condition `PodScheduled=False`, "Insufficient cpu") produces an **empty** message, and

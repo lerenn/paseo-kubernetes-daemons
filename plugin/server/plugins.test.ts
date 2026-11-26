@@ -75,8 +75,8 @@ test("plugins.sync writes a labelled Secret per plugin with variables, catalog l
   const secret = k.writes.find((w) => w.kind === "Secret");
   assert.equal(secret.immutable, true);
   assert.equal(secret.data.TOKEN, Buffer.from(SECRET).toString("base64"));
-  assert.ok(secret.metadata.labels["workspaces.paseo.sh/profile-owner"]);
-  assert.equal(k.writes.at(-1).metadata.name, "paseo-workspaces-gateway");
+  assert.ok(secret.metadata.labels["daemons.paseo.sh/profile-owner"]);
+  assert.equal(k.writes.at(-1).metadata.name, "paseo-daemons-gateway");
   const catalog = JSON.parse(k.writes.at(-1).data["projects.json"]);
   assert.deepEqual(catalog[0].plugins, [
     { source: "git:o/r", ref: "v1", configSecret: a.synced!.secret },
